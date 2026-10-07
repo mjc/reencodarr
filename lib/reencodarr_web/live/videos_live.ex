@@ -1,27 +1,12 @@
 defmodule ReencodarrWeb.VideosLive do
-  @moduledoc """
-  LiveView for browsing, filtering, and managing videos.
-
-  ## Features
-  - URL-driven state: all filters/sort/page are query params (bookmarkable, shareable)
-  - Sortable columns with click-to-toggle direction indicators
-  - Filter by state, service type (sonarr/radarr), HDR presence
-  - Full-text search with debounce
-  - Per-page selector (25/50/100/250)
-  - State stats bar: clickable count badges per pipeline state
-  - Bulk selection and bulk reset to needs_analysis
-  - Per-row actions: reset, force re-analyze, delete
-  - Space saved display for encoded videos
-  - Live updates via PubSub on pipeline events; periodic 30s fallback
-  - Loading state for initial data fetch
-  """
+  @moduledoc "URL-driven video browsing, queue management, and worker controls."
 
   use ReencodarrWeb, :live_view
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoActions
   alias Reencodarr.Videos.State, as: VideosState
   alias ReencodarrWeb.Live.FlopList
 
@@ -30,8 +15,8 @@ defmodule ReencodarrWeb.VideosLive do
   @update_interval 30_000
 
   @valid_states ~w(needs_analysis analyzing analyzed crf_searching crf_searched encoding encoded failed)
-  @valid_service_types ~w(sonarr radarr)
-  @valid_sort_fields ~w(path state size width bitrate updated_at)
+  @valid_service_types ~w(sonarr sportarr radarr)
+  @valid_sort_fields ~w(path state size width bitrate updated_at priority)
   @valid_sort_dirs ~w(asc desc)
 
   # ---------------------------------------------------------------------------
@@ -42,6 +27,9 @@ defmodule ReencodarrWeb.VideosLive do
   def mount(_params, _session, socket) do
     socket =
       assign(socket,
+        inspection_id: nil,
+        inspection: nil,
+        inspection_loading: false,
         videos: [],
         meta: %Flop.Meta{},
         total: 0,
@@ -78,7 +66,11 @@ defmodule ReencodarrWeb.VideosLive do
     socket =
       socket
       |> assign(filters)
+      |> then(fn socket ->
+        if filters_changed?, do: assign(socket, :selected, MapSet.new()), else: socket
+      end)
       |> reload_videos_for_params(filters_changed?)
+      |> load_inspection(params["video"])
 
     {:noreply, socket}
   end
@@ -117,6 +109,15 @@ defmodule ReencodarrWeb.VideosLive do
   def handle_async(:load_videos, {:exit, _reason}, socket) do
     {:noreply, socket |> assign(:loading, false) |> put_flash(:error, "Unable to load videos")}
   end
+
+  def handle_async(:inspect_video, {:ok, {id, inspection}}, socket) do
+    if id == socket.assigns.inspection_id,
+      do: {:noreply, assign(socket, inspection: inspection, inspection_loading: false)},
+      else: {:noreply, socket}
+  end
+
+  def handle_async(:inspect_video, {:exit, _}, socket),
+    do: {:noreply, assign(socket, inspection: nil, inspection_loading: false)}
 
   # ---------------------------------------------------------------------------
   # Filter / sort / pagination events (push_patch keeps URL in sync)
@@ -171,7 +172,7 @@ defmodule ReencodarrWeb.VideosLive do
 
   @impl true
   def handle_event("sort", %{"col" => col}, socket) do
-    col_atom = String.to_existing_atom(col)
+    col_atom = coerce_atom_in(col, @valid_sort_fields, socket.assigns.sort_by)
 
     {sort_by, sort_dir} =
       if socket.assigns.sort_by == col_atom,
@@ -328,31 +329,54 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def handle_event("reset_video", %{"id" => id_str}, socket) do
-    with {:ok, id} <- Parsers.parse_integer_exact(id_str),
-         video when not is_nil(video) <- Media.get_video(id),
-         {:ok, _} <- Media.mark_as_needs_analysis(video) do
-      {:noreply, socket |> put_flash(:info, "Reset to needs_analysis") |> load_data()}
+  def handle_event(event, %{"id" => raw_id}, socket)
+      when event in ["reset_video", "force_reanalyze", "delete_video"] do
+    action =
+      %{"reset_video" => :reset, "force_reanalyze" => :reanalyze, "delete_video" => :delete}[
+        event
+      ]
+
+    message =
+      %{
+        reset: "Reset to needs_analysis",
+        reanalyze: "Queued for re-analysis",
+        delete: "Video deleted"
+      }[action]
+
+    with {:ok, id} <- Parsers.parse_integer_exact(raw_id),
+         {:ok, _} <- VideoActions.mutate(id, action) do
+      {:noreply,
+       socket
+       |> put_flash(:info, message)
+       |> load_data()
+       |> push_patch(to: patch_path(socket.assigns, []))}
     else
-      nil ->
+      {:error, :active} ->
+        {:noreply, put_flash(socket, :error, "Stop the active job before changing this video")}
+
+      {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Video not found")}
 
-      {:error, reason} ->
-        require Logger
-        Logger.error("Failed to reset video #{id_str}: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, "Reset failed")}
+      _ ->
+        {:noreply, put_flash(socket, :error, "Unable to change video")}
     end
   end
 
-  @impl true
-  def handle_event("force_reanalyze", %{"id" => id_str}, socket) do
-    case Parsers.parse_integer_exact(id_str) do
-      {:ok, id} ->
-        Media.force_reanalyze_video(id)
-        {:noreply, socket |> put_flash(:info, "Queued for re-analysis") |> load_data()}
+  def handle_event("inspect_video", %{"id" => id}, socket) do
+    {:noreply, push_patch(socket, to: patch_path(socket.assigns, video: id))}
+  end
 
-      _ ->
-        {:noreply, socket}
+  def handle_event("control_video", %{"id" => id, "action" => action}, socket)
+      when action in ["pause", "resume", "stop"] do
+    with {:ok, id} <- Parsers.parse_integer_exact(id),
+         :ok <- VideoActions.control(id, String.to_existing_atom(action)) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Worker #{action} requested")
+       |> load_data()
+       |> refresh_inspection()}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Worker is unavailable; no command was sent")}
     end
   end
 
@@ -374,7 +398,10 @@ defmodule ReencodarrWeb.VideosLive do
       {:ok, id} ->
         case fail_video_by_id(id) do
           :ok ->
-            {:noreply, socket |> put_flash(:info, "Job stopped") |> load_data()}
+            {:noreply, socket |> put_flash(:info, "Worker stop requested") |> load_data()}
+
+          {:ok, :removed} ->
+            {:noreply, socket |> put_flash(:info, "Removed from queue") |> load_data()}
 
           {:error, :active_mismatch} ->
             {:noreply, socket |> put_flash(:error, "That video is not the active job")}
@@ -430,18 +457,6 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   @impl true
-  def handle_event("delete_video", %{"id" => id_str}, socket) do
-    with {:ok, id} <- Parsers.parse_integer_exact(id_str),
-         {:ok, video} <- Media.fetch_video(id),
-         {:ok, _} <- Media.delete_video(video) do
-      {:noreply, socket |> put_flash(:info, "Video deleted") |> load_data()}
-    else
-      :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
-      {:error, _} -> {:noreply, put_flash(socket, :error, "Delete failed")}
-    end
-  end
-
-  @impl true
   def handle_event("mark_bad", %{"id" => id_str, "issue" => issue_params}, socket) do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, video} <- Media.fetch_video(id),
@@ -467,6 +482,50 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  defp refresh_inspection(%{assigns: %{inspection_id: nil}} = socket), do: socket
+
+  defp refresh_inspection(socket) do
+    id = socket.assigns.inspection_id
+    socket |> assign(:inspection_id, nil) |> load_inspection(to_string(id))
+  end
+
+  defp load_inspection(socket, raw_id) do
+    id = parse_inspection_id(raw_id)
+
+    cond do
+      id == socket.assigns.inspection_id ->
+        socket
+
+      is_nil(id) ->
+        assign(socket, inspection_id: nil, inspection: nil, inspection_loading: false)
+
+      true ->
+        start_inspection(socket, id)
+    end
+  end
+
+  defp parse_inspection_id(raw_id) do
+    case Parsers.parse_integer_exact(raw_id || "") do
+      {:ok, id} -> id
+      _ -> nil
+    end
+  end
+
+  defp start_inspection(socket, id) do
+    socket = assign(socket, inspection_id: id, inspection: nil, inspection_loading: true)
+
+    if connected?(socket),
+      do: start_async(socket, :inspect_video, fn -> {id, fetch_inspection(id)} end),
+      else: socket
+  end
+
+  defp fetch_inspection(id) do
+    case Media.fetch_video(id) do
+      {:ok, video} -> %{video: video, vmafs: Media.get_vmafs_for_video(id)}
+      _ -> nil
+    end
+  end
 
   defp load_data(socket, opts \\ []) do
     page_state = fetch_video_payload(socket.assigns, opts)
@@ -548,7 +607,11 @@ defmodule ReencodarrWeb.VideosLive do
         |> Map.put(:loading, false)
         |> Map.put(:loaded_once, true)
 
-      assign(socket, page_state)
+      visible = MapSet.new(page_state.videos, & &1.id)
+
+      socket
+      |> assign(page_state)
+      |> assign(:selected, MapSet.intersection(socket.assigns.selected, visible))
     else
       socket
     end
@@ -580,30 +643,15 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   defp fail_video(%{state: :analyzed} = video) do
-    Media.fail_video_by_operator(video, :crf_search)
-    :ok
+    with {:ok, _} <- Media.fail_video_by_operator(video, :crf_search), do: {:ok, :removed}
   end
 
   defp fail_video(%{state: :crf_searched} = video) do
-    Media.fail_video_by_operator(video, :encoding)
-    :ok
+    with {:ok, _} <- Media.fail_video_by_operator(video, :encoding), do: {:ok, :removed}
   end
 
-  defp fail_video(%{state: :crf_searching, id: id}) do
-    if CrfSearch.current_video_id() == id do
-      CrfSearch.fail_current()
-    else
-      {:error, :active_mismatch}
-    end
-  end
-
-  defp fail_video(%{state: :encoding, id: id}) do
-    if Encode.current_video_id() == id do
-      Encode.fail_current()
-    else
-      {:error, :active_mismatch}
-    end
-  end
+  defp fail_video(%{state: state, id: id}) when state in [:crf_searching, :encoding],
+    do: VideoActions.control(id, :stop)
 
   defp fail_video(_video), do: {:error, :not_fail_actionable}
 
@@ -735,5 +783,10 @@ defmodule ReencodarrWeb.VideosLive do
   @impl true
   def render(assigns),
     do:
-      ReencodarrWeb.VideosComponents.page(assign(assigns, :url_query, videos_url_query(assigns)))
+      ReencodarrWeb.VideosComponents.page(
+        assign(assigns,
+          url_query: videos_url_query(assigns),
+          close_inspection: patch_path(assigns, [])
+        )
+      )
 end

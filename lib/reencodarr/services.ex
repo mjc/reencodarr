@@ -54,6 +54,7 @@ defmodule Reencodarr.Services do
 
   """
   def get_config!(id), do: Repo.get!(Config, id)
+  def get_config(id), do: Repo.get(Config, id)
 
   @doc "Gets the Sonarr config or raises if not found."
   @spec get_sonarr_config! :: Config.t()

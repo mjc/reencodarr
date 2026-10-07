@@ -6,7 +6,10 @@ defmodule ReencodarrWeb.LibraryLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, stream(socket, :libraries, Media.list_libraries())}
+    {:ok,
+     socket
+     |> assign(:libraries, Media.list_libraries())
+     |> assign_async(:video_counts, fn -> {:ok, %{video_counts: Media.library_video_counts()}} end)}
   end
 
   @impl true
@@ -33,8 +36,8 @@ defmodule ReencodarrWeb.LibraryLive.Index do
   end
 
   @impl true
-  def handle_info({ReencodarrWeb.LibraryLive.FormComponent, {:saved, library}}, socket) do
-    {:noreply, stream_insert(socket, :libraries, library)}
+  def handle_info({ReencodarrWeb.LibraryLive.FormComponent, {:saved, _library}}, socket) do
+    {:noreply, assign(socket, :libraries, Media.list_libraries())}
   end
 
   @impl true
@@ -42,6 +45,6 @@ defmodule ReencodarrWeb.LibraryLive.Index do
     library = Media.get_library!(id)
     {:ok, _} = Media.delete_library(library)
 
-    {:noreply, stream_delete(socket, :libraries, library)}
+    {:noreply, assign(socket, :libraries, Media.list_libraries())}
   end
 end

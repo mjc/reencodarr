@@ -9,7 +9,7 @@ defmodule ReencodarrWeb.LibraryLive.FormComponent do
     <div>
       <.header>
         {@title}
-        <:subtitle>Paths available for media sync.</:subtitle>
+        <:subtitle>Root path used to match synced media.</:subtitle>
       </.header>
 
       <.simple_form
@@ -20,7 +20,6 @@ defmodule ReencodarrWeb.LibraryLive.FormComponent do
         phx-submit="save"
       >
         <.input field={@form[:path]} type="text" label="Path" />
-        <.input field={@form[:monitor]} type="checkbox" label="Monitor" />
         <:actions>
           <.button phx-disable-with="Saving...">Save Library</.button>
         </:actions>

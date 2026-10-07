@@ -23,8 +23,7 @@ defmodule Reencodarr.BadFiles.StateTest do
         status_filter: "all",
         service_filter: "all",
         kind_filter: "all",
-        search_query: "bad_files_state_payload",
-        show_resolved: false
+        search_query: "bad_files_state_payload"
       })
 
     assert Enum.any?(payload.issues, &(&1.video_id == video.id))
@@ -33,7 +32,7 @@ defmodule Reencodarr.BadFiles.StateTest do
     assert payload.tracked_count >= 1
   end
 
-  test "resolved filter loads resolved issues even when show_resolved is false" do
+  test "resolved filter loads the resolved workflow" do
     {:ok, video} = Fixtures.video_fixture(%{path: "/media/resolved_filter_payload.mkv"})
 
     {:ok, issue} =
@@ -53,13 +52,11 @@ defmodule Reencodarr.BadFiles.StateTest do
         status_filter: "resolved",
         service_filter: "all",
         kind_filter: "all",
-        search_query: "resolved_filter_payload",
-        show_resolved: false
+        search_query: "resolved_filter_payload"
       })
 
-    assert Enum.any?(payload.active_issues, &(&1.video_id == video.id))
     assert Enum.any?(payload.issues, &(&1.video_id == video.id))
-    assert payload.resolved_issues == []
+    assert Enum.any?(payload.issues, &(&1.video_id == video.id))
     assert payload.meta.total_count == 1
   end
 
@@ -85,14 +82,12 @@ defmodule Reencodarr.BadFiles.StateTest do
         status_filter: "resolved",
         service_filter: "all",
         kind_filter: "all",
-        search_query: "resolved_page",
-        show_resolved: false
+        search_query: "resolved_page"
       })
 
     assert payload.meta.total_count == 26
     assert payload.meta.current_page == 2
-    assert Enum.map(payload.active_issues, & &1.video.path) == ["/media/resolved_page_26.mkv"]
-    assert payload.resolved_issues == []
+    assert Enum.map(payload.issues, & &1.video.path) == ["/media/resolved_page_26.mkv"]
   end
 
   test "list_active_issues returns all matching pages for bulk actions" do
@@ -115,14 +110,13 @@ defmodule Reencodarr.BadFiles.StateTest do
         status_filter: "all",
         service_filter: "all",
         kind_filter: "all",
-        search_query: "bulk_filtered",
-        show_resolved: false
+        search_query: "bulk_filtered"
       })
 
     assert Enum.count(issues) == 251
   end
 
-  test "replacement_issues includes matching replacement issues outside current page" do
+  test "replacing workflow finds replacements outside the review page" do
     Enum.each(1..25, fn n ->
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/replacement_page_open_#{n}.mkv"})
 
@@ -155,11 +149,22 @@ defmodule Reencodarr.BadFiles.StateTest do
         status_filter: "open",
         service_filter: "all",
         kind_filter: "all",
-        search_query: "replacement_page",
-        show_resolved: false
+        search_query: "replacement_page"
       })
 
     refute Enum.any?(payload.issues, &(&1.id == issue.id))
-    assert Enum.any?(payload.replacement_issues, &(&1.id == issue.id))
+
+    replacing =
+      State.load(%{
+        page: 1,
+        per_page: 25,
+        status_filter: "replacing",
+        service_filter: "all",
+        kind_filter: "all",
+        search_query: "replacement_page"
+      })
+
+    assert Enum.map(replacing.issues, & &1.id) == [issue.id]
+    assert replacing.meta.total_count == 1
   end
 end

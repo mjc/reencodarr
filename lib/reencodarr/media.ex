@@ -49,7 +49,9 @@ defmodule Reencodarr.Media do
     :service_type,
     :original_size,
     :space_saved_bytes,
-    :content_year
+    :content_year,
+    :worker_control_desired_state,
+    :worker_control_acknowledged_state
   ]
 
   defp write(fun, opts) when is_function(fun, 0), do: DbWriter.run(fun, opts)
@@ -845,8 +847,15 @@ defmodule Reencodarr.Media do
       0
     else
       {count, _} =
-        from(v in Video, where: v.id in ^ids)
-        |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
+        write(
+          fn ->
+            from(v in Video,
+              where: v.id in ^ids and v.state not in [:analyzing, :crf_searching, :encoding]
+            )
+            |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
+          end,
+          label: :media_reset_selected
+        )
 
       count
     end
@@ -1029,17 +1038,37 @@ defmodule Reencodarr.Media do
   @spec enqueue_bad_file_issue(BadFileIssue.t()) ::
           {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
   def enqueue_bad_file_issue(%BadFileIssue{} = issue),
-    do: update_bad_file_issue_status(issue, :queued)
+    do: update_reviewable_issue(issue, :queued)
 
   @spec retry_bad_file_issue(BadFileIssue.t()) ::
           {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
   def retry_bad_file_issue(%BadFileIssue{} = issue),
-    do: update_bad_file_issue_status(issue, :queued)
+    do: enqueue_bad_file_issue(issue)
 
   @spec dismiss_bad_file_issue(BadFileIssue.t()) ::
           {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
   def dismiss_bad_file_issue(%BadFileIssue{} = issue) do
-    update_bad_file_issue_status(issue, :dismissed)
+    update_reviewable_issue(issue, :dismissed)
+  end
+
+  defp update_reviewable_issue(issue, status) do
+    write_transaction(
+      fn ->
+        case Repo.get(BadFileIssue, issue.id) do
+          %BadFileIssue{status: current} = fresh when current in [:open, :failed, :queued] ->
+            fresh
+            |> BadFileIssue.changeset(
+              maybe_put_bad_file_issue_timestamps(%{status: status}, status)
+            )
+            |> Repo.update!()
+
+          _ ->
+            Repo.rollback(:not_reviewable)
+        end
+      end,
+      label: :media_review_bad_file_issue
+    )
+    |> tap(&broadcast_bad_file_issue_status_update/1)
   end
 
   @spec update_bad_file_issue_status(BadFileIssue.t(), atom(), map()) ::
@@ -1137,8 +1166,7 @@ defmodule Reencodarr.Media do
             series_group_key(candidate.video) == group_key
           end)
 
-        Enum.each(issues, &enqueue_bad_file_issue/1)
-        {:ok, length(issues)}
+        enqueue_bad_file_issues(issues)
     end
   end
 
@@ -1591,9 +1619,9 @@ defmodule Reencodarr.Media do
   defp total_pages(total, _per_page) when total <= 0, do: 1
   defp total_pages(total, per_page), do: max(ceil(total / per_page), 1)
 
-  defp failure_join_filters(query, "all", "all"), do: query
+  defp failure_join_filters(query, "all", "all", ""), do: query
 
-  defp failure_join_filters(query, stage, category) do
+  defp failure_join_filters(query, stage, category, code) do
     from(v in query,
       join: f in VideoFailure,
       on: f.video_id == v.id,
@@ -1602,7 +1630,11 @@ defmodule Reencodarr.Media do
     )
     |> failure_stage_filter(stage)
     |> failure_category_filter(category)
+    |> failure_code_filter(code)
   end
+
+  defp failure_code_filter(query, ""), do: query
+  defp failure_code_filter(query, code), do: from([v, f] in query, where: f.failure_code == ^code)
 
   defp failure_stage_filter(query, "all"), do: query
 
@@ -1824,7 +1856,7 @@ defmodule Reencodarr.Media do
 
     base_query =
       from(v in Video, where: v.state == :failed)
-      |> failure_join_filters(stage, category)
+      |> failure_join_filters(stage, category, failure_normalize_search(params["code"]))
       |> failure_search_filter(search)
 
     case Flop.validate_and_run(base_query, flop_params, for: Video) do
@@ -2768,6 +2800,16 @@ defmodule Reencodarr.Media do
   end
 
   # --- Library-related functions ---
+  def library_video_counts do
+    from(v in Video,
+      where: not is_nil(v.library_id),
+      group_by: v.library_id,
+      select: {v.library_id, count(v.id)}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
   def list_libraries do
     Repo.all(from(l in Library))
   end
@@ -2968,6 +3010,8 @@ defmodule Reencodarr.Media do
 
             # 2. Reset analysis fields to force re-analysis
             update_video(video, %{
+              state: :needs_analysis,
+              chosen_vmaf_id: nil,
               bitrate: nil,
               video_codecs: nil,
               audio_codecs: nil,

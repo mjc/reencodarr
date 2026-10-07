@@ -22,13 +22,12 @@ defmodule Reencodarr.BadFiles.State do
         issue_summary.open + issue_summary.queued + issue_summary.processing +
           issue_summary.waiting_for_replacement + issue_summary.failed + issue_summary.resolved,
       active_total: meta.total_count,
-      active_issues: issues,
-      replacement_issues: list_replacement_issues(assigns),
-      resolved_issues: side_resolved_issues(assigns),
       issue_summary: issue_summary
     }
   end
 
+  def active_statuses_for_filter("review"), do: [:open, :failed]
+  def active_statuses_for_filter("replacing"), do: @replacement_statuses
   def active_statuses_for_filter("all"), do: @active_statuses
   def active_statuses_for_filter("resolved"), do: []
 
@@ -85,15 +84,6 @@ defmodule Reencodarr.BadFiles.State do
     end
   end
 
-  defp list_replacement_issues(assigns) do
-    assigns
-    |> flop_params()
-    |> Media.list_bad_file_issue_previews(
-      statuses: @replacement_statuses,
-      limit: assigns.per_page
-    )
-  end
-
   defp issue_summary(_assigns, _opts, true), do: Media.bad_file_issue_summary()
 
   defp issue_summary(assigns, opts, false) do
@@ -106,15 +96,8 @@ defmodule Reencodarr.BadFiles.State do
     Media.list_bad_file_issues(flop_params(assigns), statuses: statuses)
   end
 
-  defp side_resolved_issues(%{status_filter: "resolved"}), do: []
-  defp side_resolved_issues(%{show_resolved: false}), do: []
-
-  defp side_resolved_issues(assigns) do
-    {issues, _meta} = fetch_issues(@resolved_statuses, Map.put(assigns, :page, 1))
-
-    issues
-  end
-
+  defp statuses_for_filter("review"), do: [:open, :failed]
+  defp statuses_for_filter("replacing"), do: @replacement_statuses
   defp statuses_for_filter("all"), do: @active_statuses
   defp statuses_for_filter("resolved"), do: @resolved_statuses
 

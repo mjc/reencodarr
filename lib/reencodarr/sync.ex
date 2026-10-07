@@ -29,6 +29,16 @@ defmodule Reencodarr.Sync do
   def sync_sportarr, do: GenServer.cast(__MODULE__, :sync_sportarr)
   def sync_movies, do: GenServer.cast(__MODULE__, :sync_movies)
 
+  def interval_ms,
+    do: Application.get_env(:reencodarr, :sync_interval_ms, @default_sync_interval_ms)
+
+  def request_sync(service_type) do
+    case Map.fetch(@sync_actions, service_type) do
+      {:ok, action} -> GenServer.cast(__MODULE__, action)
+      :error -> {:error, :unsupported_service}
+    end
+  end
+
   # GenServer Callbacks
   def init(state) do
     {:ok, schedule_sync(state, 10_000)}
@@ -65,7 +75,7 @@ defmodule Reencodarr.Sync do
 
   def handle_info(:periodic_sync, state) do
     now = DateTime.utc_now()
-    interval = Application.get_env(:reencodarr, :sync_interval_ms, @default_sync_interval_ms)
+    interval = interval_ms()
     attempts = Map.get(state, :last_attempts, %{})
 
     Services.list_configs()

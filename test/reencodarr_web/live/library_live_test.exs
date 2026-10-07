@@ -5,9 +5,9 @@ defmodule ReencodarrWeb.LibraryLiveTest do
   import ExUnit.CaptureLog
   alias Reencodarr.Fixtures
 
-  @create_attrs %{monitor: true, path: "some path"}
-  @update_attrs %{monitor: false, path: "some updated path"}
-  @invalid_attrs %{monitor: false, path: nil}
+  @create_attrs %{path: "some path"}
+  @update_attrs %{path: "some updated path"}
+  @invalid_attrs %{path: nil}
 
   defp create_library(_) do
     library = Fixtures.library_fixture()

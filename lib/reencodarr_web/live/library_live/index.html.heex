@@ -1,35 +1,39 @@
 <div class="workbench page-stack">
-  <.page_header title="Library paths" subtitle="Paths available for media sync.">
+  <.page_header
+    title="Library paths"
+    subtitle="Configure the root paths used to match synced media."
+  >
     <:actions>
       <.link patch={~p"/libraries/new"} class="workbench-button">New Library</.link>
     </:actions>
   </.page_header>
-  <.panel>
-    <.table
-      id="libraries"
-      rows={@streams.libraries}
-      row_click={fn {_id, library} -> JS.navigate(~p"/libraries/#{library}") end}
+  <div id="libraries" class="settings-records">
+    <p :if={@libraries == []} id="libraries-empty" class="empty-state">
+      No library paths configured.
+    </p>
+    <article
+      :for={library <- @libraries}
+      id={"libraries-#{library.id}"}
+      class="library-path content-panel"
     >
-      <:col :let={{_id, library}} label="Path">{library.path}</:col>
-      <:col :let={{_id, library}} label="Monitoring">
-        {if(library.monitor, do: "Enabled", else: "Disabled")}
-      </:col>
-      <:action :let={{_id, library}}>
-        <div class="sr-only">
-          <.link navigate={~p"/libraries/#{library}"}>Show</.link>
-        </div>
-        <.link patch={~p"/libraries/#{library}/edit"}>Edit</.link>
-      </:action>
-      <:action :let={{id, library}}>
-        <.link
-          phx-click={JS.push("delete", value: %{id: library.id}) |> hide("##{id}")}
-          data-confirm="Delete this library?"
-        >
-          Delete
-        </.link>
-      </:action>
-    </.table>
-  </.panel>
+      <div>
+        <h2>{library.path}</h2><p>
+          {if(@video_counts.ok?,
+            do: "#{Map.get(@video_counts.result, library.id, 0)} videos",
+            else: "Loading count…"
+          )}
+        </p>
+      </div>
+      <.link navigate={~p"/videos?#{%{search: library.path}}"} class="workbench-button">View videos</.link>
+      <.link patch={~p"/libraries/#{library}/edit"} class="section-action">Edit</.link>
+      <.link
+        phx-click="delete"
+        phx-value-id={library.id}
+        data-confirm="Delete this library path?"
+        class="text-rose-300"
+      >Delete</.link>
+    </article>
+  </div>
 </div>
 
 <.modal

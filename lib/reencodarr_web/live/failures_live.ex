@@ -1,31 +1,19 @@
 defmodule ReencodarrWeb.FailuresLive do
-  @moduledoc """
-  Live dashboard for failures analysis and management.
-
-  ## Failures Analysis Features:
-  - Failed video discovery and filtering
-  - Detailed failure analysis with codec, size, path information
-  - Failure retry and bulk management
-  - Sorting and searching capabilities
-
-  ## Architecture Notes:
-  - Modern Dashboard V2 UI with card-based layout
-  - Memory optimized with efficient queries
-  - Real-time updates via Events PubSub for failure state changes
-  """
+  @moduledoc "URL-driven failure review and retries from the last usable stage."
 
   use ReencodarrWeb, :live_view
 
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
+  alias Reencodarr.Media.Retry
   alias ReencodarrWeb.Live.FlopList
 
   @update_interval 30_000
   @default_per_page 20
   @stage_filter_values ["all", "analysis", "crf_search", "encoding", "post_process"]
   @category_filter_values ["all", "file_access", "process_failure", "timeout", "codec_issues"]
-  @param_keys [:failure_filter, :category_filter, :search_term, :page, :per_page]
+  @param_keys [:failure_filter, :category_filter, :search_term, :code_filter, :page, :per_page]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -86,28 +74,27 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   @impl true
+  def handle_event("resume_failed_video", %{"video_id" => id}, socket) do
+    with {:ok, id} <- Parsers.parse_integer_exact(id), {:ok, _video} <- Retry.video(id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Queued retry from the last usable stage")
+       |> async_load_failures()}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Video is no longer failed or could not be retried")}
+    end
+  end
+
+  @impl true
   def handle_event("retry_failed_video", %{"video_id" => video_id}, socket) do
-    case Parsers.parse_integer_exact(video_id) do
-      {:ok, id} ->
-        case Media.get_video(id) do
-          nil ->
-            {:noreply, put_flash(socket, :error, "Video not found")}
-
-          video ->
-            # Reset the video to needs_analysis state and clear bitrate to trigger reanalysis
-            Media.update_video(video, %{bitrate: nil})
-            Media.mark_as_needs_analysis(video)
-            Media.resolve_video_failures(video.id)
-
-            # Reload the failures data
-            {:noreply,
-             socket
-             |> put_flash(:info, "Video #{video.id} marked for retry")
-             |> async_load_failures()}
-        end
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Invalid video ID")}
+    with {:ok, id} <- Parsers.parse_integer_exact(video_id),
+         {:ok, _video} <- Retry.video(id, :analyze) do
+      {:noreply,
+       socket |> put_flash(:info, "Video #{id} marked for retry") |> async_load_failures()}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Video is no longer failed or could not be retried")}
     end
   end
 
@@ -118,7 +105,8 @@ defmodule ReencodarrWeb.FailuresLive do
     {:noreply,
      socket
      |> push_patch(to: patch_path(socket.assigns, page: 1))
-     |> put_flash(:info, "All failures have been reset")}
+     |> put_flash(:info, "All failures have been reset")
+     |> async_load_failures()}
   end
 
   @impl true
@@ -176,14 +164,15 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   @impl true
-  def handle_event("retry_selected", _params, socket) do
+  def handle_event("retry_selected", params, socket) do
     selected_ids = socket.assigns.selected_videos |> MapSet.to_list()
 
     if selected_ids == [] do
       {:noreply, put_flash(socket, :error, "No videos selected")}
     else
       # Reset each selected video
-      Enum.each(selected_ids, &retry_video/1)
+      mode = if params["mode"] == "resume", do: :resume, else: :analyze
+      retried = Enum.count(selected_ids, &match?({:ok, _}, Retry.video(&1, mode)))
 
       # Clear selection and reload
       socket =
@@ -191,7 +180,7 @@ defmodule ReencodarrWeb.FailuresLive do
         |> assign(:selected_videos, MapSet.new())
         |> async_load_failures()
 
-      count = Enum.count(selected_ids)
+      count = retried
       {:noreply, put_flash(socket, :info, "Retrying #{count} selected videos")}
     end
   end
@@ -237,18 +226,6 @@ defmodule ReencodarrWeb.FailuresLive do
 
   # Private helper functions
 
-  defp retry_video(video_id) do
-    case Media.get_video(video_id) do
-      nil ->
-        :ok
-
-      video ->
-        Media.update_video(video, %{bitrate: nil})
-        Media.mark_as_needs_analysis(video)
-        Media.resolve_video_failures(video.id)
-    end
-  end
-
   @impl true
   def render(assigns), do: ReencodarrWeb.FailuresComponents.page(assigns)
 
@@ -261,6 +238,7 @@ defmodule ReencodarrWeb.FailuresLive do
     |> assign(:page, 1)
     |> assign(:per_page, 20)
     |> assign(:search_term, "")
+    |> assign(:code_filter, "")
   end
 
   defp assign_placeholder_data(socket) do
@@ -316,7 +294,11 @@ defmodule ReencodarrWeb.FailuresLive do
   defp assign_failure_payload(socket, %{request: request} = payload) do
     if flop_list_assigns(socket.assigns) == request do
       payload = Map.delete(payload, :request)
-      assign(socket, Map.put(payload, :loaded_once, true))
+      visible = MapSet.new(payload.failed_videos, & &1.id)
+
+      socket
+      |> assign(Map.put(payload, :loaded_once, true))
+      |> assign(:selected_videos, MapSet.intersection(socket.assigns.selected_videos, visible))
     else
       socket
     end
@@ -339,7 +321,8 @@ defmodule ReencodarrWeb.FailuresLive do
       per_page: assigns.per_page,
       failure_filter: assigns.failure_filter,
       category_filter: assigns.category_filter,
-      search_term: assigns.search_term
+      search_term: assigns.search_term,
+      code_filter: assigns.code_filter
     }
   end
 
@@ -349,7 +332,8 @@ defmodule ReencodarrWeb.FailuresLive do
       "page_size" => to_string(assigns.per_page),
       "stage" => assigns.failure_filter,
       "category" => assigns.category_filter,
-      "search" => assigns.search_term
+      "search" => assigns.search_term,
+      "code" => assigns.code_filter
     }
   end
 
@@ -364,7 +348,8 @@ defmodule ReencodarrWeb.FailuresLive do
           params
           |> Map.get("category", "all")
           |> then(&if(&1 in @category_filter_values, do: &1, else: "all")),
-        search_term: params |> Map.get("search", "") |> normalize_search_term()
+        search_term: params |> Map.get("search", "") |> normalize_search_term(),
+        code_filter: params |> Map.get("code", "") |> normalize_search_term()
       },
       FlopList.pagination_assigns(params, @default_per_page, [@default_per_page])
     )
@@ -375,6 +360,7 @@ defmodule ReencodarrWeb.FailuresLive do
       "stage" => assigns.failure_filter,
       "category" => assigns.category_filter,
       "search" => assigns.search_term,
+      "code" => assigns.code_filter,
       "per_page" => to_string(assigns.per_page)
     }
     |> Enum.reject(fn

@@ -7,33 +7,13 @@ defmodule ReencodarrWeb.FailuresComponents do
     <div class="workbench page-stack">
       <div class="page-stack">
         <ReencodarrWeb.Layouts.issue_tabs active={:failures} />
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 class="text-2xl font-bold text-[var(--wb-text)] sm:text-3xl">
-              Failures ({@total_count})
-            </h1>
-            <p class="text-[var(--wb-muted)]">
-              Processing failures and retry actions.
-            </p>
-          </div>
-          <div class="flex flex-col gap-2 sm:flex-row">
-            <%= if MapSet.size(@selected_videos) > 0 do %>
-              <button
-                phx-click="retry_selected"
-                class="w-full px-4 py-2 text-sm font-medium text-[var(--wb-text)] bg-[#294362] rounded-md transition-colors hover:bg-[var(--wb-raised)] sm:w-auto"
-              >
-                Retry selected ({MapSet.size(@selected_videos)})
-              </button>
-            <% end %>
-            <button
-              phx-click="reset_all_failures"
-              class="w-full px-4 py-2 text-sm font-medium text-[var(--wb-text)] bg-[#55373e] rounded-md transition-colors hover:bg-[var(--wb-raised)] sm:w-auto"
-            >
-              Reset all
-            </button>
-          </div>
+        <.page_header title="Failures" subtitle={"#{@total_count} matching videos"} />
+        <div :if={MapSet.size(@selected_videos) > 0} class="selection-toolbar">
+          <strong>{MapSet.size(@selected_videos)} selected</strong>
+          <button phx-click="retry_selected" phx-value-mode="resume" class="workbench-button">Retry selected</button>
+          <button phx-click="retry_selected" phx-value-mode="analyze" class="section-action">Analyze again</button>
+          <button phx-click="deselect_all" class="section-action">Clear</button>
         </div>
-
         <%= if @loading do %>
           <div class="bg-[var(--wb-panel)] rounded-md shadow-none p-12 border border-[var(--wb-line)] text-center">
             <p class="text-[var(--wb-muted)]" role="status">Loading failures…</p>
@@ -45,7 +25,22 @@ defmodule ReencodarrWeb.FailuresComponents do
             category_filter={@category_filter}
           />
 
-          <.retry_failure_code_panel actions={@failure_code_actions} />
+          <div
+            :if={@failure_code_actions != []}
+            class="failure-code-groups"
+            aria-label="Filter by error code"
+          >
+            <.link
+              :for={action <- @failure_code_actions}
+              patch={~p"/failures?#{Map.merge(@url_query, %{"code" => action.code})}"}
+              class={["workbench-button", @code_filter == action.code && "active"]}
+            >{action.code} · {action.count}</.link>
+            <.link
+              :if={@code_filter != ""}
+              patch={~p"/failures?#{Map.delete(@url_query, "code")}"}
+              class="section-action"
+            >Clear code filter</.link>
+          </div>
           <.failure_table
             failed_videos={@failed_videos}
             video_failures={@video_failures}
@@ -55,7 +50,23 @@ defmodule ReencodarrWeb.FailuresComponents do
             meta={@meta}
             url_query={@url_query}
           />
-          <.common_failure_patterns patterns={@failure_patterns} />
+          <details
+            id="failure-maintenance"
+            phx-mounted={JS.ignore_attributes("open")}
+            class="content-panel p-4"
+          >
+            <summary>Bulk reset and diagnostics</summary>
+            <p class="text-[var(--wb-muted)] my-3">
+              Reset restarts analysis and discards CRF results for all failed videos.
+            </p>
+            <button
+              phx-click="reset_all_failures"
+              data-confirm="Reset all failed videos and discard their CRF results?"
+              class="workbench-button"
+            >Reset all failures</button>
+            <.retry_failure_code_panel actions={@failure_code_actions} />
+            <.common_failure_patterns patterns={@failure_patterns} />
+          </details>
         <% end %>
       </div>
     </div>
@@ -304,11 +315,11 @@ defmodule ReencodarrWeb.FailuresComponents do
 
                 <div class="flex items-center">
                   <button
-                    phx-click="retry_failed_video"
+                    phx-click="resume_failed_video"
                     phx-value-video_id={video.id}
                     class="px-3 py-1 text-xs font-medium text-[var(--wb-text)] bg-[#294362] rounded hover:bg-[var(--wb-raised)] transition-colors"
                   >
-                    Retry
+                    {retry_label(video, latest_failure)}
                   </button>
                 </div>
               </div>
@@ -333,6 +344,12 @@ defmodule ReencodarrWeb.FailuresComponents do
     </div>
     """
   end
+
+  defp retry_label(%{chosen_vmaf_id: id}, %{failure_stage: stage})
+       when not is_nil(id) and stage in [:encoding, :post_process], do: "Retry encode"
+
+  defp retry_label(_video, %{failure_stage: :crf_search}), do: "Retry CRF search"
+  defp retry_label(_video, _failure), do: "Analyze again"
 
   attr :failure, :any, required: true
 

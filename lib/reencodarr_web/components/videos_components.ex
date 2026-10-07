@@ -3,6 +3,8 @@ defmodule ReencodarrWeb.VideosComponents do
   use ReencodarrWeb, :html
   @queueable_states [:needs_analysis, :analyzed, :crf_searched]
 
+  defp active_video?(video), do: video.state in [:analyzing, :crf_searching, :encoding]
+
   defp queueable_video?(video), do: video.state in @queueable_states
 
   defp fail_action_video?(video),
@@ -39,6 +41,12 @@ defmodule ReencodarrWeb.VideosComponents do
           per_page={@per_page}
           per_page_options={@per_page_options}
         />
+        <div class="queue-presets" aria-label="Queue views">
+          <.link patch={queue_path(@url_query, "needs_analysis")}>Analysis queue</.link>
+          <.link patch={queue_path(@url_query, "analyzed")}>CRF search queue</.link>
+          <.link patch={queue_path(@url_query, "crf_searched")}>Encode queue</.link>
+          <.link navigate="/failures">Review failures</.link>
+        </div>
         <.videos_results
           loading={@loading}
           videos={@videos}
@@ -51,6 +59,81 @@ defmodule ReencodarrWeb.VideosComponents do
           url_query={@url_query}
         />
       </div>
+      <.modal
+        :if={@inspection_id}
+        id="video-inspection"
+        show
+        on_cancel={JS.patch(@close_inspection)}
+        title="Video details"
+      >
+        <h2>Video details</h2>
+        <p :if={@inspection_loading} role="status">Loading video…</p>
+        <p :if={not @inspection_loading and is_nil(@inspection)}>Video not found.</p>
+        <.video_inspection :if={@inspection} inspection={@inspection} />
+      </.modal>
+    </div>
+    """
+  end
+
+  defp queue_path(query, state),
+    do:
+      ~p"/videos?#{Map.merge(query, %{"state" => state, "sort_by" => "priority", "sort_dir" => "desc"})}"
+
+  attr :inspection, :map, required: true
+
+  defp video_inspection(assigns) do
+    assigns = assign(assigns, video: assigns.inspection.video, vmafs: assigns.inspection.vmafs)
+
+    ~H"""
+    <div class="video-inspection page-stack">
+      <p class="full-path">{@video.path}</p>
+      <dl class="inspection-facts">
+        <div>
+          <dt>State</dt><dd>{state_label(@video.state)}</dd>
+        </div>
+        <div>
+          <dt>Source</dt><dd>{service_display(@video.service_type)}</dd>
+        </div>
+        <div>
+          <dt>Resolution</dt><dd>{format_resolution(@video.width, @video.height)}</dd>
+        </div>
+        <div>
+          <dt>Size</dt><dd>{format_size(@video.size)}</dd>
+        </div>
+        <div>
+          <dt>Video</dt><dd>{Enum.join(@video.video_codecs || [], ", ")}</dd>
+        </div>
+        <div>
+          <dt>Audio</dt><dd>{Enum.join(@video.audio_codecs || [], ", ")}</dd>
+        </div>
+        <div>
+          <dt>Bitrate</dt><dd>{format_bitrate(@video.bitrate)}</dd>
+        </div>
+        <div>
+          <dt>Priority</dt><dd>{@video.priority}</dd>
+        </div>
+        <div>
+          <dt>Worker</dt><dd>{@video.encode_worker_id || @video.crf_search_worker_id || "—"}</dd>
+        </div>
+        <div>
+          <dt>Worker control</dt><dd>{@video.worker_control_desired_state || "—"}</dd>
+        </div>
+      </dl>
+      <.video_actions video={@video} id_prefix="inspection" allow_mark_bad={false} />
+      <section>
+        <h3>CRF results</h3>
+        <p :if={@vmafs == []} class="text-[var(--wb-muted)]">No CRF results.</p>
+        <div :for={vmaf <- @vmafs} class="crf-result-row">
+          <span>CRF {vmaf.crf}</span><span>VMAF {vmaf.score}</span>
+          <span>{if vmaf.id == @video.chosen_vmaf_id, do: "Chosen", else: ""}</span>
+        </div>
+      </section>
+      <.link
+        :if={@video.state == :failed}
+        navigate={~p"/failures?#{%{search: @video.path}}"}
+        class="section-action"
+      >View failure details</.link>
+      <.link navigate={~p"/bad-files?#{%{search: @video.path}}"} class="section-action">View bad-file issues</.link>
     </div>
     """
   end
@@ -167,6 +250,7 @@ defmodule ReencodarrWeb.VideosComponents do
           >
             <option value="">All sources</option>
             <option value="sonarr" selected={@service_filter == "sonarr"}>Sonarr (TV)</option>
+            <option value="sportarr" selected={@service_filter == "sportarr"}>Sportarr</option>
             <option value="radarr" selected={@service_filter == "radarr"}>Radarr (Movies)</option>
           </select>
           <select
@@ -330,7 +414,9 @@ defmodule ReencodarrWeb.VideosComponents do
         />
       </td>
       <td class="px-4 py-2 text-[var(--wb-text)] max-w-0 w-full" title={@video.path}>
-        <div class="font-medium text-[var(--wb-text)] truncate">{Path.basename(@video.path)}</div>
+        <button phx-click="inspect_video" phx-value-id={@video.id} class="video-file-link">{Path.basename(
+          @video.path
+        )}</button>
         <%= if @video.title do %>
           <div class="text-xs text-[var(--wb-muted)] truncate">
             {@video.title}
@@ -371,10 +457,13 @@ defmodule ReencodarrWeb.VideosComponents do
 
   attr :video, :map, required: true
 
+  attr :id_prefix, :string, default: "video"
+  attr :allow_mark_bad, :boolean, default: true
+
   defp video_actions(assigns) do
     ~H"""
     <details
-      id={"video-actions-#{@video.id}"}
+      id={"#{@id_prefix}-actions-#{@video.id}"}
       class="row-actions"
       phx-mounted={JS.ignore_attributes("open")}
     >
@@ -400,19 +489,29 @@ defmodule ReencodarrWeb.VideosComponents do
             Prioritize season
           </button>
         <% end %>
+        <button
+          :if={@video.state in [:crf_searching, :encoding]}
+          phx-click="control_video"
+          phx-value-id={@video.id}
+          phx-value-action={
+            if @video.worker_control_desired_state == :paused, do: "resume", else: "pause"
+          }
+          class="section-action"
+        >{if @video.worker_control_desired_state == :paused, do: "Resume worker", else: "Pause worker"}</button>
         <%= if fail_action_video?(@video) do %>
           <button
             phx-click="fail_video"
             phx-value-id={@video.id}
-            data-confirm={"Stop #{Path.basename(@video.path)}?"}
+            data-confirm={"#{if active_video?(@video), do: "Stop", else: "Remove from queue:"} #{Path.basename(@video.path)}?"}
             title="Stop job"
             aria-label="Stop job"
             class="text-red-500 hover:text-red-400 text-xs font-semibold"
           >
-            Stop
+            {if active_video?(@video), do: "Stop worker job", else: "Remove from queue"}
           </button>
         <% end %>
         <button
+          :if={not active_video?(@video)}
           phx-click="force_reanalyze"
           phx-value-id={@video.id}
           title="Force re-analyze (clears VMAFs and resets metadata)"
@@ -431,6 +530,7 @@ defmodule ReencodarrWeb.VideosComponents do
           </button>
         <% end %>
         <button
+          :if={@allow_mark_bad}
           phx-click="toggle_mark_bad"
           phx-value-id={@video.id}
           title="Open bad-file form"
@@ -439,6 +539,7 @@ defmodule ReencodarrWeb.VideosComponents do
           Mark bad
         </button>
         <button
+          :if={not active_video?(@video)}
           phx-click="delete_video"
           phx-value-id={@video.id}
           data-confirm={"Delete #{Path.basename(@video.path)}?"}

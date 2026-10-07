@@ -364,3 +364,47 @@ progress::-moz-progress-bar { background: var(--wb-blue); border-radius: 3px; }
   .failure-row > :last-child { grid-column: 3; grid-row: 1 / 3; }
   .failure-row > :nth-child(2) { min-width: 0; }
 }
+.settings-records { display: grid; gap: 16px; }
+.stream-empty { display: none; padding: 24px; border: 1px dashed var(--wb-line); border-radius: 6px; color: var(--wb-muted); }
+.stream-empty:only-child { display: block; }
+.source-card > header { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 20px; }
+.source-url { color: var(--wb-muted); overflow-wrap: anywhere; margin-top: 4px; }
+.source-sync-status { padding: 0 20px 20px; display: grid; gap: 7px; }
+.source-sync-status progress { width: 100%; }
+.source-progress-label { display: flex; justify-content: space-between; }
+.source-card footer { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 14px 20px; background: var(--wb-raised); border-top: 1px solid var(--wb-line); }
+.source-extra { margin-left: auto; color: var(--wb-muted); font-size: 14px; }
+.source-extra summary { cursor: pointer; }
+.source-extra[open] { flex-basis: 100%; display: grid; gap: 10px; }
+.setting-switch { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.setting-switch > span { width: 32px; height: 18px; border-radius: 12px; padding: 2px; background: #47515e; }
+.setting-switch > span::after { content: ''; display: block; width: 14px; height: 14px; border-radius: 100%; background: var(--wb-text); }
+.setting-switch[aria-checked="true"] > span { background: #42658a; }
+.setting-switch[aria-checked="true"] > span::after { margin-left: 14px; }
+.library-path { display: flex; align-items: center; gap: 20px; padding: 20px; flex-wrap: wrap; }
+.library-path > div { flex: 1 1 260px; min-width: 0; }
+.library-path h2 { overflow-wrap: anywhere; font-size: 19px; }
+.library-path p { color: var(--wb-muted); margin-top: 4px; }
+
+.selection-toolbar, .failure-code-groups, .queue-presets, .replacement-queue-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: .75rem;
+}
+.failure-code-groups a, .queue-presets a { border: 1px solid var(--wb-line); padding: .5rem .75rem; border-radius: 6px; color: var(--wb-muted); }
+.failure-code-groups a.active { color: var(--wb-blue); border-color: var(--wb-blue); }
+.workflow-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
+.workflow-tabs a { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; border: 1px solid var(--wb-line); border-radius: 8px; padding: .85rem; color: var(--wb-muted); }
+.workflow-tabs a.active { background: var(--wb-raised); color: var(--wb-text); border-color: var(--wb-blue); }
+.bad-file-filters input, .bad-file-filters select { width: 100%; border: 1px solid var(--wb-line); border-radius: 6px; padding: .65rem; color: var(--wb-text); background: var(--wb-raised); }
+.bad-file-card { padding: 1.25rem; display: grid; gap: 1rem; }
+.bad-file-card header { display: flex; gap: .75rem; align-items: flex-start; }
+.bad-file-card h2 { font-size: 1rem; overflow-wrap: anywhere; }
+.bad-file-card header p, .issue-status { font-size: .8rem; color: var(--wb-muted); }
+.bad-file-card footer { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.full-path { overflow-wrap: anywhere; font-family: var(--font-mono, monospace); font-size: .8rem; color: var(--wb-muted); }
+.video-file-link { display: block; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; color: var(--wb-text); }
+.video-file-link:hover { color: var(--wb-blue); }
+.inspection-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.inspection-facts dt { color: var(--wb-muted); font-size: .75rem; }
+.inspection-facts dd { overflow-wrap: anywhere; font-size: .9rem; }
+.crf-result-row { display: flex; gap: 1.5rem; flex-wrap: wrap; border-bottom: 1px solid var(--wb-line); padding: .6rem 0; }
+@media (max-width: 640px) { .workflow-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bad-file-card { padding: 1rem; } }

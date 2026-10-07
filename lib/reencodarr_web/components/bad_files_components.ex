@@ -1,380 +1,277 @@
 defmodule ReencodarrWeb.BadFilesComponents do
-  @moduledoc "Bad-file queues, replacements, and issue rows."
+  @moduledoc "Review and replacement workflow for bad files."
   use ReencodarrWeb, :html
 
-  defp issue_reason(issue) do
-    case issue.manual_reason do
-      nil -> to_string(issue.classification)
-      "" -> to_string(issue.classification)
-      manual_reason -> manual_reason
-    end
-  end
+  def page(assigns) do
+    assigns = assign(assigns, :selection_count, MapSet.size(assigns.selected))
 
-  attr :status_filter_values, :list, required: true
-  attr :service_filter_values, :list, required: true
-  attr :kind_filter_values, :list, required: true
-  attr :status_filter, :string, required: true
-  attr :service_filter, :string, required: true
-  attr :kind_filter, :string, required: true
-  attr :search_query, :string, required: true
-  attr :active_total, :integer, default: 0
-
-  defp bad_files_toolbar(assigns) do
     ~H"""
-    <div class="content-panel p-4 space-y-4">
-      <div class="bad-file-filters">
-        <form id="bad-files-status-filter" phx-change="filter_status" phx-no-unused-field>
-          <select
-            name="status"
-            aria-label="Filter by status"
-            class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] px-3 py-2 text-sm text-[var(--wb-text)]"
-            data-role="list-filter-select"
-          >
-            <%= for value <- @status_filter_values do %>
-              <option value={value} selected={value == @status_filter}>{value}</option>
-            <% end %>
-          </select>
-        </form>
-        <form id="bad-files-service-filter" phx-change="filter_service" phx-no-unused-field>
-          <select
-            name="service"
-            aria-label="Filter by service"
-            class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] px-3 py-2 text-sm text-[var(--wb-text)]"
-            data-role="list-filter-select"
-          >
-            <%= for value <- @service_filter_values do %>
-              <option value={value} selected={value == @service_filter}>{value}</option>
-            <% end %>
-          </select>
-        </form>
-        <form id="bad-files-kind-filter" phx-change="filter_kind" phx-no-unused-field>
-          <select
-            name="kind"
-            aria-label="Filter by kind"
-            class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] px-3 py-2 text-sm text-[var(--wb-text)]"
-            data-role="list-filter-select"
-          >
-            <%= for value <- @kind_filter_values do %>
-              <option value={value} selected={value == @kind_filter}>{value}</option>
-            <% end %>
-          </select>
-        </form>
-        <form
-          id="bad-files-search-filter"
-          phx-change="search_issues"
-          phx-no-unused-field
-          class="flex-1"
+    <div class="workbench page-stack">
+      <ReencodarrWeb.Layouts.issue_tabs active={:bad_files} />
+      <.page_header title="Bad Files" subtitle={"#{@active_total} matching issues"} />
+      <nav class="workflow-tabs" aria-label="Replacement workflow">
+        <.link
+          :for={{status, label, count} <- workflow_tabs(@issue_summary)}
+          patch={workflow_path(@url_query, status)}
+          aria-current={if @status_filter == status, do: "page"}
+          class={if @status_filter == status, do: "active"}
         >
-          <input
-            id="bad-files-search"
-            type="search"
-            name="query"
-            value={@search_query}
-            aria-label="Search bad files by path, reason, or note"
-            placeholder="search path, reason, note"
-            class="w-full rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] px-3 py-2 text-sm text-[var(--wb-text)] placeholder:text-[var(--wb-muted)]"
-            data-role="list-search-input"
-          />
-        </form>
-      </div>
-      <details id="bad-file-actions" phx-mounted={JS.ignore_attributes("open")}>
-        <summary class="workbench-button">Replacement actions</summary>
-        <div class="space-y-3 pt-4">
-          <div class="flex items-center text-xs text-[var(--wb-muted)]">
-            Bulk actions apply to all {@active_total} matching active issues.
-          </div>
-          <div class="flex flex-wrap gap-2">
+          <span>{label}</span><strong>{count}</strong>
+        </.link>
+      </nav>
+      <p :if={@loading_issues} role="status" class="text-[var(--wb-muted)]">loading issues...</p>
+      <div class="content-panel p-4 space-y-4">
+        <div class="bad-file-filters">
+          <form id="bad-files-status-filter" phx-change="filter_status">
+            <select name="status" aria-label="Filter by status" data-role="list-filter-select">
+              <option
+                :for={value <- @status_filter_values}
+                value={value}
+                selected={value == @status_filter}
+              >
+                {display_label(value)}
+              </option>
+            </select>
+          </form>
+          <form id="bad-files-service-filter" phx-change="filter_service">
+            <select name="service" aria-label="Filter by service" data-role="list-filter-select">
+              <option
+                :for={value <- @service_filter_values}
+                value={value}
+                selected={value == @service_filter}
+              >
+                {display_label(value)}
+              </option>
+            </select>
+          </form>
+          <form id="bad-files-kind-filter" phx-change="filter_kind">
+            <select name="kind" aria-label="Filter by kind" data-role="list-filter-select">
+              <option
+                :for={value <- @kind_filter_values}
+                value={value}
+                selected={value == @kind_filter}
+              >
+                {display_label(value)}
+              </option>
+            </select>
+          </form>
+          <form id="bad-files-search-filter" phx-change="search_issues" class="flex-1">
+            <input
+              id="bad-files-search"
+              type="search"
+              name="query"
+              value={@search_query}
+              phx-debounce="350"
+              aria-label="Search bad files by path, reason, or note"
+              placeholder="Search path, reason, note"
+              data-role="list-search-input"
+            />
+          </form>
+        </div>
+        <div :if={@selection_count > 0} class="selection-toolbar">
+          <strong>{@selection_count} selected</strong>
+          <button phx-click="queue_selected" class="workbench-button">Queue selected</button>
+          <button
+            phx-click="dismiss_selected"
+            class="workbench-button"
+            data-confirm={"Dismiss #{@selection_count} selected issues?"}
+          >Dismiss selected</button>
+          <button phx-click="clear_selection" class="section-action">Clear selection</button>
+        </div>
+        <div :if={@status_filter == "queued"} class="replacement-queue-actions">
+          <p>Queued files wait until you start a replacement.</p>
+          <button
+            id="start-queued-lanes"
+            phx-click="replace_queued_now"
+            disabled={@replacement_pending}
+            class="workbench-button"
+          >Start next for each source</button>
+        </div>
+        <p :if={@replacement_pending} role="status">Sending replacement request…</p>
+        <details id="bad-file-actions" phx-mounted={JS.ignore_attributes("open")}>
+          <summary class="section-action">More replacement actions</summary>
+          <div class="row-action-items mt-3">
             <button
               id="replace-next-queued"
               phx-click="replace_next_queued"
+              disabled={@replacement_pending}
               class="workbench-button"
-            >
-              replace next queued
-            </button>
+            >Start next queued</button>
             <button
               id="replace-queued-now"
               phx-click="replace_queued_now"
+              disabled={@replacement_pending}
               class="workbench-button"
-            >
-              replace queued now
-            </button>
+            >Start next for each source</button>
             <button
-              id="replace-next-sonarr"
+              :for={service <- ["sonarr", "sportarr", "radarr"]}
+              id={"replace-next-#{service}"}
               phx-click="replace_next_queued_service"
-              phx-value-service="sonarr"
+              phx-value-service={service}
+              disabled={@replacement_pending}
               class="workbench-button"
-            >
-              replace next sonarr
-            </button>
-            <button
-              id="replace-next-radarr"
-              phx-click="replace_next_queued_service"
-              phx-value-service="radarr"
-              class="workbench-button"
-            >
-              replace next radarr
-            </button>
+            >Start next {display_label(service)}</button>
             <button
               id="queue-filtered-issues"
               phx-click="queue_filtered_issues"
               class="workbench-button"
-            >
-              queue all {@active_total} matching active issues
-            </button>
+              data-confirm={"Queue all #{@active_total} matching active issues?"}
+            >Queue all {@active_total} matching active issues</button>
             <button
               id="replace-filtered-now"
               phx-click="replace_filtered_now"
+              disabled={@replacement_pending}
               class="workbench-button"
-            >
-              replace all {@active_total} matching active issues now
-            </button>
+              data-confirm={"Queue all #{@active_total} matching active issues and start one replacement per source?"}
+            >Queue matching issues and start next per source</button>
           </div>
-        </div>
-      </details>
-    </div>
-    """
-  end
-
-  attr :issue_summary, :map, required: true
-
-  defp bad_files_summary(assigns) do
-    ~H"""
-    <div class="issue-counts">
-      <div class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] p-3 text-sm text-[var(--wb-muted)]">
-        Open: {@issue_summary.open}
+        </details>
       </div>
-      <div class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] p-3 text-sm text-[var(--wb-muted)]">
-        Queued: {@issue_summary.queued}
-      </div>
-      <div class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] p-3 text-sm text-[var(--wb-muted)]">
-        Processing: {@issue_summary.processing}
-      </div>
-      <div class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] p-3 text-sm text-[var(--wb-muted)]">
-        Waiting: {@issue_summary.waiting_for_replacement}
-      </div>
-      <div class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] p-3 text-sm text-[var(--wb-muted)]">
-        Failed: {@issue_summary.failed}
-      </div>
-      <div class="rounded border border-[var(--wb-line)] bg-[var(--wb-panel)] p-3 text-sm text-[var(--wb-muted)]">
-        Resolved: {@issue_summary.resolved}
-      </div>
-    </div>
-    """
-  end
-
-  attr :replacement_issues, :list, required: true
-
-  defp active_replacements(assigns) do
-    ~H"""
-    <%= if @replacement_issues != [] do %>
-      <section class="space-y-2">
-        <h2 class="text-lg font-semibold text-[var(--wb-text)]">Active Replacements</h2>
-        <div class="grid gap-3 md:grid-cols-2">
-          <%= for issue <- @replacement_issues do %>
-            <div class="rounded border border-emerald-700/60 bg-emerald-950/30 p-3 text-sm text-emerald-100">
-              <div class="font-medium">{Path.basename(issue.video.path)}</div>
-              <div class="mt-1 text-xs normal-case tracking-normal text-emerald-300">
-                {issue.video.service_type} • {issue.status}
-              </div>
-              <div class="mt-1 text-xs text-emerald-200/80">{issue_reason(issue)}</div>
-            </div>
-          <% end %>
-        </div>
+      <section class="page-stack" aria-label="Matching bad-file issues">
+        <.empty_state
+          :if={@issues == [] and not @loading_issues}
+          title="No matching issues"
+          description="Choose another workflow stage or change the filters."
+        />
+        <.issue
+          :for={issue <- @issues}
+          issue={issue}
+          selected={MapSet.member?(@selected, issue.id)}
+          pending={@replacement_pending}
+        />
       </section>
-    <% end %>
-    """
-  end
-
-  attr :title, :string, required: true
-  attr :issues, :list, required: true
-  attr :meta, Flop.Meta, default: nil
-  attr :url_query, :map, default: %{}
-  attr :paginate?, :boolean, default: false
-
-  defp bad_files_issue_table(assigns) do
-    ~H"""
-    <section class="space-y-2">
-      <h2 class="text-lg font-semibold text-[var(--wb-text)]">{@title}</h2>
-      <div class="bg-[var(--wb-panel)] rounded-md border border-[var(--wb-line)] overflow-x-auto">
-        <table class="bad-files-table min-w-full divide-y divide-[var(--wb-line)] text-sm">
-          <thead class="bg-[var(--wb-raised)]">
-            <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-[var(--wb-muted)] normal-case tracking-normal">
-                File
-              </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-[var(--wb-muted)] normal-case tracking-normal">
-                Reason
-              </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-[var(--wb-muted)] normal-case tracking-normal">
-                Status
-              </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-[var(--wb-muted)] normal-case tracking-normal">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <.render_issue_rows issues={@issues} />
-        </table>
-      </div>
       <.flop_pagination
-        :if={@paginate?}
         id="bad-files-flop-pagination"
         meta={@meta}
         base_path="/bad-files"
         query={@url_query}
         mode={:simple}
       />
-    </section>
-    """
-  end
-
-  attr :show_resolved, :boolean, required: true
-  attr :issues, :list, required: true
-
-  defp resolved_issues_section(assigns) do
-    ~H"""
-    <section class="space-y-2">
-      <h2 class="text-lg font-semibold text-[var(--wb-text)]">Resolved Issues</h2>
-      <div class="flex flex-wrap gap-3 items-center justify-between">
-        <p class="text-sm text-[var(--wb-muted)]">Recent resolved issues are loaded on demand.</p>
-        <button
-          id="toggle-resolved-issues"
-          phx-click="toggle_resolved"
-          class="rounded bg-[var(--wb-raised)] px-3 py-2 text-sm font-medium text-[var(--wb-text)] hover:bg-[var(--wb-raised)]"
-        >
-          <%= if @show_resolved do %>
-            hide resolved
-          <% else %>
-            show resolved
-          <% end %>
-        </button>
-      </div>
-      <.bad_files_issue_table :if={@show_resolved} title="Resolved Issues" issues={@issues} />
-    </section>
-    """
-  end
-
-  attr :issues, :list, required: true
-
-  defp render_issue_rows(assigns) do
-    ~H"""
-    <tbody class="divide-y divide-[var(--wb-line)]">
-      <%= for issue <- @issues do %>
-        <tr>
-          <td class="px-4 py-3 text-[var(--wb-text)]">
-            <div>{Path.basename(issue.video.path)}</div>
-            <div class="text-xs text-[var(--wb-muted)]">{issue.video.service_type}</div>
-          </td>
-          <td class="px-4 py-3 text-[var(--wb-muted)]">
-            <div>{issue_reason(issue)}</div>
-            <div class="text-xs text-[var(--wb-muted)]">{issue.issue_kind}</div>
-            <%= if issue.manual_note && issue.manual_note != "" do %>
-              <div class="text-xs text-[var(--wb-muted)]">{issue.manual_note}</div>
-            <% end %>
-          </td>
-          <td class="px-4 py-3 text-[var(--wb-muted)]">{issue.status}</td>
-          <td class="px-4 py-3">
-            <div class="flex gap-2">
-              <button
-                :if={issue.status in [:open, :failed]}
-                id={"replace-issue-now-#{issue.id}"}
-                phx-click="replace_issue_now"
-                phx-value-id={issue.id}
-                class="text-[var(--wb-amber)] hover:text-amber-200 text-xs"
-              >
-                replace now
-              </button>
-              <button
-                :if={issue.status in [:open, :failed]}
-                id={"enqueue-issue-#{issue.id}"}
-                phx-click="enqueue_issue"
-                phx-value-id={issue.id}
-                class="text-emerald-300 hover:text-emerald-200 text-xs"
-              >
-                queue
-              </button>
-              <button
-                :if={
-                  issue.video.service_type in [:sonarr, :sportarr] and
-                    issue.status in [:open, :failed]
-                }
-                id={"queue-series-issues-#{issue.id}"}
-                phx-click="queue_series_issues"
-                phx-value-id={issue.id}
-                class="text-cyan-300 hover:text-cyan-200 text-xs"
-              >
-                queue series bad
-              </button>
-              <button
-                :if={issue.status == :failed}
-                id={"retry-issue-#{issue.id}"}
-                phx-click="retry_issue"
-                phx-value-id={issue.id}
-                class="text-blue-300 hover:text-blue-200 text-xs"
-              >
-                retry
-              </button>
-              <button
-                :if={issue.status != :dismissed}
-                id={"dismiss-issue-#{issue.id}"}
-                phx-click="dismiss_issue"
-                phx-value-id={issue.id}
-                class="text-red-300 hover:text-red-200 text-xs"
-              >
-                dismiss
-              </button>
-            </div>
-          </td>
-        </tr>
-      <% end %>
-      <%= if @issues == [] do %>
-        <tr>
-          <td colspan="4" class="px-6 py-10 text-center text-[var(--wb-muted)]">
-            No bad-file issues tracked.
-          </td>
-        </tr>
-      <% end %>
-    </tbody>
-    """
-  end
-
-  def page(assigns) do
-    ~H"""
-    <div class="workbench page-stack">
-      <div class="page-stack">
-        <ReencodarrWeb.Layouts.issue_tabs active={:bad_files} />
-        <div>
-          <h1>Bad Files</h1>
-          <p :if={@loading_issues} class="text-[var(--wb-muted)]">loading issues...</p>
-          <p :if={not @loading_issues} class="text-[var(--wb-muted)]">{@tracked_count} tracked</p>
-        </div>
-
-        <.bad_files_summary issue_summary={@issue_summary} />
-        <.active_replacements replacement_issues={@replacement_issues} />
-        <.bad_files_toolbar
-          status_filter_values={@status_filter_values}
-          service_filter_values={@service_filter_values}
-          kind_filter_values={@kind_filter_values}
-          status_filter={@status_filter}
-          service_filter={@service_filter}
-          kind_filter={@kind_filter}
-          search_query={@search_query}
-          active_total={@active_total}
-        />
-        <.bad_files_issue_table
-          title={if @status_filter == "resolved", do: "Resolved Issues", else: "Active Issues"}
-          issues={@active_issues}
-          meta={@meta}
-          url_query={@url_query}
-          paginate?
-        />
-        <.resolved_issues_section
-          :if={@status_filter != "resolved"}
-          show_resolved={@show_resolved}
-          issues={@resolved_issues}
-        />
-      </div>
     </div>
     """
   end
+
+  attr :issue, :map, required: true
+  attr :selected, :boolean, required: true
+  attr :pending, :boolean, required: true
+
+  defp issue(assigns) do
+    ~H"""
+    <article id={"bad-file-#{@issue.id}"} class="bad-file-card content-panel">
+      <header>
+        <input
+          :if={@issue.status in [:open, :failed, :queued]}
+          type="checkbox"
+          checked={@selected}
+          phx-click="toggle_select"
+          phx-value-id={@issue.id}
+          aria-label={"Select #{Path.basename(@issue.video.path)}"}
+        />
+        <div class="min-w-0 flex-1">
+          <h2>{Path.basename(@issue.video.path)}</h2>
+          <p>{display_label(@issue.video.service_type)} · {display_label(@issue.issue_kind)}</p>
+        </div>
+        <span class="issue-status">{display_label(@issue.status)}</span>
+      </header>
+      <p class="issue-reason">{issue_reason(@issue)}</p>
+      <p :if={@issue.manual_note not in [nil, ""]} class="text-[var(--wb-muted)]">
+        {@issue.manual_note}
+      </p>
+      <details id={"bad-file-details-#{@issue.id}"} phx-mounted={JS.ignore_attributes("open")}>
+        <summary class="section-action">File and replacement details</summary>
+        <div class="page-stack pt-3">
+          <p class="full-path">{@issue.video.path}</p>
+          <dl class="inspection-facts">
+            <div>
+              <dt>Classification</dt><dd>{display_label(@issue.classification)}</dd>
+            </div>
+            <div>
+              <dt>Detected</dt><dd>{@issue.inserted_at}</dd>
+            </div>
+            <div>
+              <dt>Last attempt</dt><dd>{@issue.last_attempted_at || "—"}</dd>
+            </div>
+            <div>
+              <dt>Resolved</dt><dd>{@issue.resolved_at || "—"}</dd>
+            </div>
+            <div :if={@issue.source_audio_codec}>
+              <dt>Source audio</dt><dd>
+                {@issue.source_audio_codec} · {@issue.source_channels} channels · {@issue.source_layout}
+              </dd>
+            </div>
+            <div :if={@issue.output_audio_codec}>
+              <dt>Output audio</dt><dd>
+                {@issue.output_audio_codec} · {@issue.output_channels} channels · {@issue.output_layout}
+              </dd>
+            </div>
+          </dl>
+          <.link navigate={~p"/videos?#{%{video: @issue.video_id}}"} class="section-action">Inspect video</.link>
+        </div>
+      </details>
+      <footer>
+        <button
+          :if={@issue.status in [:open, :failed]}
+          id={"enqueue-issue-#{@issue.id}"}
+          phx-click="enqueue_issue"
+          phx-value-id={@issue.id}
+          class="workbench-button"
+        >Queue replacement</button>
+        <button
+          :if={@issue.status in [:open, :failed, :queued]}
+          id={"replace-issue-now-#{@issue.id}"}
+          phx-click="replace_issue_now"
+          phx-value-id={@issue.id}
+          disabled={@pending}
+          class="workbench-button"
+          data-confirm="Start replacement of this file through its source?"
+        >Start replacement</button>
+        <button
+          :if={
+            @issue.status in [:open, :failed] and @issue.video.service_type in [:sonarr, :sportarr]
+          }
+          id={"queue-series-issues-#{@issue.id}"}
+          phx-click="queue_series_issues"
+          phx-value-id={@issue.id}
+          data-confirm="Queue all bad-file issues from this series?"
+          class="section-action"
+        >Queue series issues</button>
+        <button
+          :if={@issue.status == :failed}
+          id={"retry-issue-#{@issue.id}"}
+          phx-click="retry_issue"
+          phx-value-id={@issue.id}
+          class="section-action"
+        >Requeue</button>
+        <button
+          :if={@issue.status in [:open, :failed, :queued]}
+          id={"dismiss-issue-#{@issue.id}"}
+          phx-click="dismiss_issue"
+          phx-value-id={@issue.id}
+          class="section-action"
+        >Dismiss</button>
+        <p
+          :if={@issue.status in [:processing, :waiting_for_replacement]}
+          class="text-[var(--wb-muted)]"
+        >
+          Waiting for the source to import a replacement. The next sync checks the file.
+        </p>
+      </footer>
+    </article>
+    """
+  end
+
+  defp workflow_tabs(s),
+    do: [
+      {"all", "All active",
+       s.open + s.failed + s.queued + s.processing + s.waiting_for_replacement},
+      {"review", "Review", s.open + s.failed},
+      {"queued", "Queued", s.queued},
+      {"replacing", "Replacing", s.processing + s.waiting_for_replacement},
+      {"resolved", "Resolved", s.resolved}
+    ]
+
+  defp workflow_path(query, status), do: ~p"/bad-files?#{Map.put(query, "status", status)}"
+  defp issue_reason(%{manual_reason: reason}) when reason not in [nil, ""], do: reason
+  defp issue_reason(issue), do: display_label(issue.classification)
+  defp display_label(value), do: value |> to_string() |> Phoenix.Naming.humanize()
 end

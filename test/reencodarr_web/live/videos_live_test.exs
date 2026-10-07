@@ -623,7 +623,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       assert html =~ "Queued for re-analysis"
     end
 
-    test "keeps the row visible until state transition occurs", %{conn: conn} do
+    test "moves the row out of the analyzed filter when re-analysis is queued", %{conn: conn} do
       {:ok, video} =
         Fixtures.video_fixture(%{path: "/media/reanalyze_filtered.mkv", state: :analyzed})
 
@@ -635,7 +635,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_click()
 
       assert html =~ "Queued for re-analysis"
-      assert html =~ "reanalyze_filtered.mkv"
+      refute html =~ "reanalyze_filtered.mkv"
+      assert Media.get_video!(video.id).state == :needs_analysis
     end
   end
 
@@ -651,7 +652,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> element("button[phx-click='fail_video'][phx-value-id='#{video.id}']")
         |> render_click()
 
-      assert html =~ "Job stopped"
+      assert html =~ "Removed from queue"
       assert Reencodarr.Media.get_video!(video.id).state == :failed
     end
 

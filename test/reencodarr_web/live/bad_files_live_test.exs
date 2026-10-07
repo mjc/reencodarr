@@ -85,15 +85,15 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
 
-      assert html =~ "Open: 0"
-      assert html =~ "Queued: 1"
-      assert html =~ "Resolved: 1"
-      assert html =~ "Active Issues"
-      assert html =~ "Resolved Issues"
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=review\"] strong", "0")
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=queued\"] strong", "1")
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=resolved\"] strong", "1")
+      assert html =~ "All active"
+      assert html =~ "Resolved"
       assert html =~ "active_issue.mkv"
       refute html =~ "resolved_issue.mkv"
 
-      view |> element("#toggle-resolved-issues") |> render_click()
+      view |> element(".workflow-tabs a[href*=\"status=resolved\"]") |> render_click()
       html = render_async(view)
       assert html =~ "resolved_issue.mkv"
     end
@@ -117,7 +117,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
 
-      assert html =~ "confirmed_bad_audio_layout"
+      assert html =~ "Confirmed bad audio layout"
       assert html =~ "audio"
       assert html =~ "audio_issue.mkv"
     end
@@ -195,15 +195,15 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         })
 
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
-      html = render_async(view)
-      assert html =~ "Open: 1"
+      render_async(view)
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=review\"] strong", "1")
 
       {:ok, _updated_issue} = Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
       html = render_async(view)
 
-      assert html =~ "Open: 0"
-      assert html =~ "Waiting: 1"
-      assert html =~ "waiting_for_replacement"
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=review\"] strong", "0")
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=replacing\"] strong", "1")
+      assert html =~ "Waiting for replacement"
     end
 
     test "replace now processes only the selected issue", %{conn: conn} do
@@ -237,7 +237,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
-      html = view |> element("#replace-issue-now-#{selected_issue.id}") |> render_click()
+      view |> element("#replace-issue-now-#{selected_issue.id}") |> render_click()
+      html = render_async(view)
 
       assert html =~ "Started replacement for selected issue"
       assert Media.get_bad_file_issue!(selected_issue.id).status == :waiting_for_replacement
@@ -265,7 +266,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
-      html = view |> element("#replace-next-queued") |> render_click()
+      view |> element("#replace-next-queued") |> render_click()
+      html = render_async(view)
 
       assert html =~ "Started replacement for next queued bad file"
     end
@@ -304,7 +306,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
-      html = view |> element("#replace-next-sonarr") |> render_click()
+      view |> element("#replace-next-sonarr") |> render_click()
+      html = render_async(view)
 
       assert html =~ "Started replacement for next queued sonarr bad file"
       refute html =~ "Started replacement for next queued radarr bad file"
@@ -347,7 +350,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
-      html = view |> element("#replace-queued-now") |> render_click()
+      view |> element("#replace-queued-now") |> render_click()
+      html = render_async(view)
 
       assert html =~ "Started replacement for 2 queued bad files"
     end
@@ -457,7 +461,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         |> form("#bad-files-search-filter", %{"query" => "replace_filtered"})
         |> render_change()
 
-      html = view |> element("#replace-filtered-now") |> render_click()
+      view |> element("#replace-filtered-now") |> render_click()
+      html = render_async(view)
 
       assert html =~ "Queued 3 filtered bad-file issues and started 2 replacements"
       assert Media.get_bad_file_issue!(sonarr_issue.id).status == :queued
@@ -537,7 +542,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       Events.broadcast_event(:sync_completed, %{service_type: :sonarr})
 
       html = render_async(view)
-      assert html =~ "Resolved: 1"
+      assert has_element?(view, ".workflow-tabs a[href*=\"status=resolved\"] strong", "1")
       refute html =~ "external-update.mkv"
     end
   end
@@ -771,7 +776,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       html = render_async(view)
 
       assert pagination_label_from_html(html) == "26-26 of 26"
-      assert html =~ "Resolved Issues"
+      assert html =~ "Resolved"
       assert html =~ "resolved_url_"
       refute html =~ "Recent resolved issues are loaded on demand."
     end

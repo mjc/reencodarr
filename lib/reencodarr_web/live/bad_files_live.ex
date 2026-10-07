@@ -14,6 +14,8 @@ defmodule ReencodarrWeb.BadFilesLive do
   @default_per_page 50
   @status_filter_values [
     "all",
+    "review",
+    "replacing",
     "open",
     "queued",
     "processing",
@@ -29,6 +31,8 @@ defmodule ReencodarrWeb.BadFilesLive do
   def mount(_params, _session, socket) do
     socket =
       assign(socket,
+        selected: MapSet.new(),
+        replacement_pending: false,
         per_page_options: @per_page_options,
         status_filter_values: @status_filter_values,
         service_filter_values: @service_filter_values,
@@ -40,16 +44,12 @@ defmodule ReencodarrWeb.BadFilesLive do
         kind_filter: "all",
         search_query: "",
         loading_issues: true,
-        show_resolved: false,
         loaded_once: false,
         issues: [],
         meta: %Flop.Meta{},
         url_query: %{},
         tracked_count: 0,
         active_total: 0,
-        active_issues: [],
-        replacement_issues: [],
-        resolved_issues: [],
         issue_summary: %{
           open: 0,
           queued: 0,
@@ -76,6 +76,9 @@ defmodule ReencodarrWeb.BadFilesLive do
     socket =
       socket
       |> assign(filters)
+      |> then(fn socket ->
+        if filters_changed?, do: assign(socket, :selected, MapSet.new()), else: socket
+      end)
       |> assign_url_query()
       |> reload_issues_for_params(filters_changed?)
 
@@ -114,6 +117,22 @@ defmodule ReencodarrWeb.BadFilesLive do
      |> put_flash(:error, "Failed to load bad-file issues")}
   end
 
+  def handle_async(:replacement, {:ok, {level, message}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:replacement_pending, false)
+     |> put_flash(level, message)
+     |> async_load_issues(include_summary: true)}
+  end
+
+  def handle_async(:replacement, {:exit, _reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:replacement_pending, false)
+     |> put_flash(:error, "Replacement request failed")
+     |> async_load_issues(include_summary: true)}
+  end
+
   @impl true
   def handle_event("filter_status", %{"status" => status}, socket) do
     normalized_status = if status in @status_filter_values, do: status, else: "all"
@@ -148,6 +167,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   def handle_event("enqueue_issue", %{"id" => id_str}, socket) do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, issue} <- Media.fetch_bad_file_issue(id),
+         true <- issue.status in [:open, :failed, :queued],
          {:ok, _queued_issue} <- Media.enqueue_bad_file_issue(issue) do
       {:noreply, socket |> put_flash(:info, "Queued bad-file issue") |> async_load_issues()}
     else
@@ -159,6 +179,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   def handle_event("dismiss_issue", %{"id" => id_str}, socket) do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, issue} <- Media.fetch_bad_file_issue(id),
+         true <- issue.status in [:open, :failed, :queued],
          {:ok, _dismissed_issue} <- Media.dismiss_bad_file_issue(issue) do
       {:noreply, socket |> put_flash(:info, "Dismissed bad-file issue") |> async_load_issues()}
     else
@@ -178,75 +199,86 @@ defmodule ReencodarrWeb.BadFilesLive do
   end
 
   @impl true
-  def handle_event("replace_issue_now", %{"id" => id_str}, socket) do
-    with {:ok, id} <- Parsers.parse_integer_exact(id_str),
-         {:ok, issue} <- Media.fetch_bad_file_issue(id),
-         {:ok, _issue} <- BadFileRemediation.process_issue(issue, []) do
-      {:noreply,
-       socket |> put_flash(:info, "Started replacement for selected issue") |> async_load_issues()}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Failed to start replacement")}
-    end
+  def handle_event("replace_issue_now", %{"id" => raw_id}, socket) do
+    {:noreply,
+     start_replacement(socket, fn ->
+       with {:ok, id} <- Parsers.parse_integer_exact(raw_id),
+            {:ok, issue} <- Media.fetch_bad_file_issue(id),
+            true <- issue.status in [:open, :failed, :queued] do
+         replacement_result(BadFileRemediation.process_issue(issue, []))
+       else
+         _ -> {:error, "This issue is no longer available for replacement"}
+       end
+     end)}
   end
 
-  @impl true
   def handle_event("replace_next_queued", _params, socket) do
-    case BadFileRemediation.process_next_issue([]) do
-      {:ok, _issue} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Started replacement for next queued bad file")
-         |> async_load_issues()}
-
-      :idle ->
-        {:noreply, put_flash(socket, :error, "No queued bad files to replace")}
-
-      _other ->
-        {:noreply, put_flash(socket, :error, "Failed to start queued replacement")}
-    end
+    {:noreply,
+     start_replacement(socket, fn ->
+       case BadFileRemediation.process_next_issue([]) do
+         {:ok, _} -> {:info, "Started replacement for next queued bad file"}
+         result -> replacement_result(result)
+       end
+     end)}
   end
 
-  @impl true
   def handle_event("replace_next_queued_service", %{"service" => service}, socket) do
     case normalize_service(service) do
       :all ->
         {:noreply, put_flash(socket, :error, "Unknown replacement lane")}
 
       service_type ->
-        case BadFileRemediation.process_next_issue(service_type: service_type) do
-          {:ok, _issue} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Started replacement for next queued #{service} bad file")
-             |> async_load_issues()}
-
-          :idle ->
-            {:noreply, put_flash(socket, :error, "No queued #{service} bad files to replace")}
-
-          _other ->
-            {:noreply, put_flash(socket, :error, "Failed to start queued #{service} replacement")}
-        end
+        {:noreply,
+         start_replacement(socket, fn ->
+           case BadFileRemediation.process_next_issue(service_type: service_type) do
+             {:ok, _} -> {:info, "Started replacement for next queued #{service} bad file"}
+             :idle -> {:error, "No queued #{service} bad files to replace"}
+             _ -> {:error, "Failed to start queued #{service} replacement"}
+           end
+         end)}
     end
   end
 
-  @impl true
   def handle_event("replace_queued_now", _params, socket) do
-    results =
-      [:sonarr, :sportarr, :radarr]
-      |> Enum.map(&BadFileRemediation.process_next_issue(service_type: &1))
+    {:noreply,
+     start_replacement(socket, fn ->
+       case start_service_replacements() do
+         0 -> {:error, "No queued bad files to replace"}
+         count -> {:info, "Started replacement for #{count} queued bad files"}
+       end
+     end)}
+  end
 
-    started_count = Enum.count(results, &match?({:ok, _issue}, &1))
+  def handle_event("toggle_select", %{"id" => raw_id}, socket) do
+    with {:ok, id} <- Parsers.parse_integer_exact(raw_id),
+         %{status: status} <- Enum.find(socket.assigns.issues, &(&1.id == id)),
+         true <- status in [:open, :failed, :queued] do
+      selected = socket.assigns.selected
 
-    case started_count do
-      0 ->
-        {:noreply, put_flash(socket, :error, "No queued bad files to replace")}
+      selected =
+        if MapSet.member?(selected, id),
+          do: MapSet.delete(selected, id),
+          else: MapSet.put(selected, id)
 
-      count ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Started replacement for #{count} queued bad files")
-         |> async_load_issues()}
+      {:noreply, assign(socket, :selected, selected)}
+    else
+      _ -> {:noreply, socket}
     end
+  end
+
+  def handle_event("clear_selection", _, socket),
+    do: {:noreply, assign(socket, :selected, MapSet.new())}
+
+  def handle_event(event, _, socket) when event in ["queue_selected", "dismiss_selected"] do
+    count = Enum.count(socket.assigns.selected, &apply_selected_issue(&1, event))
+
+    verb = if event == "queue_selected", do: "Queued", else: "Dismissed"
+
+    {:noreply,
+     socket
+     |> assign(:selected, MapSet.new())
+     |> put_flash(:info, "#{verb} #{count} selected issues")
+     |> async_load_issues(include_summary: true)}
   end
 
   @impl true
@@ -279,28 +311,43 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   @impl true
   def handle_event("replace_filtered_now", _params, socket) do
-    case Media.enqueue_bad_file_issues(filtered_active_issues(socket)) do
-      {:ok, queued_count} when queued_count > 0 ->
-        started_count = start_service_replacements()
+    issues = filtered_active_issues(socket)
 
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "Queued #{queued_count} filtered bad-file issues and started #{started_count} replacements"
-         )
-         |> async_load_issues()}
+    {:noreply,
+     start_replacement(socket, fn ->
+       case Media.enqueue_bad_file_issues(issues) do
+         {:ok, count} when count > 0 ->
+           started = start_service_replacements()
+           {:info, "Queued #{count} filtered bad-file issues and started #{started} replacements"}
 
-      {:ok, 0} ->
-        {:noreply, put_flash(socket, :error, "No filtered bad-file issues could be queued")}
+         _ ->
+           {:error, "No filtered bad-file issues could be queued"}
+       end
+     end)}
+  end
+
+  defp apply_selected_issue(id, event) do
+    with {:ok, issue} <- Media.fetch_bad_file_issue(id),
+         true <- issue.status in [:open, :failed, :queued] do
+      result =
+        if event == "queue_selected",
+          do: Media.enqueue_bad_file_issue(issue),
+          else: Media.dismiss_bad_file_issue(issue)
+
+      match?({:ok, _}, result)
+    else
+      _ -> false
     end
   end
 
-  @impl true
-  def handle_event("toggle_resolved", _params, socket) do
-    {:noreply,
-     socket |> assign(:show_resolved, !socket.assigns.show_resolved) |> async_load_issues()}
-  end
+  defp start_replacement(%{assigns: %{replacement_pending: true}} = socket, _fun), do: socket
+
+  defp start_replacement(socket, fun),
+    do: socket |> assign(:replacement_pending, true) |> start_async(:replacement, fun)
+
+  defp replacement_result({:ok, _}), do: {:info, "Started replacement for selected issue"}
+  defp replacement_result(:idle), do: {:error, "No queued bad files to replace"}
+  defp replacement_result(_), do: {:error, "Failed to start replacement"}
 
   defp async_load_issues(socket, opts \\ [])
   defp async_load_issues(%{assigns: %{loaded_once: false}} = socket, _opts), do: socket
@@ -368,7 +415,14 @@ defmodule ReencodarrWeb.BadFilesLive do
         |> Map.put(:loading_issues, false)
         |> Map.put(:loaded_once, true)
 
-      assign(socket, issue_payload)
+      eligible =
+        issue_payload.issues
+        |> Enum.filter(&(&1.status in [:open, :queued, :failed]))
+        |> MapSet.new(& &1.id)
+
+      socket
+      |> assign(issue_payload)
+      |> assign(:selected, MapSet.intersection(socket.assigns.selected, eligible))
     else
       socket
     end
@@ -452,8 +506,7 @@ defmodule ReencodarrWeb.BadFilesLive do
       :status_filter,
       :service_filter,
       :kind_filter,
-      :search_query,
-      :show_resolved
+      :search_query
     ])
   end
 
