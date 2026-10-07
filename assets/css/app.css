@@ -408,3 +408,19 @@ progress::-moz-progress-bar { background: var(--wb-blue); border-radius: 3px; }
 .inspection-facts dd { overflow-wrap: anywhere; font-size: .9rem; }
 .crf-result-row { display: flex; gap: 1.5rem; flex-wrap: wrap; border-bottom: 1px solid var(--wb-line); padding: .6rem 0; }
 @media (max-width: 640px) { .workflow-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bad-file-card { padding: 1rem; } }
+
+@media (max-width: 640px) {
+  .videos-table, .videos-table thead, .videos-table tbody { display: block; }
+  .videos-table thead tr { display: block; }
+  .videos-table thead th { display: none; }
+  .videos-table thead th:first-child { display: flex; align-items: center; gap: .75rem; width: auto; padding: .75rem 1rem; }
+  .videos-table tbody tr { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: .5rem; padding: 1rem; }
+  .videos-table tbody td { display: block; padding: 0; width: auto; max-width: none; white-space: normal; }
+  .videos-table tbody td:first-child { grid-column: 1; grid-row: 1; padding-top: .2rem; }
+  .videos-table tbody td:nth-child(2) { grid-column: 2; grid-row: 1; }
+  .videos-table tbody td:nth-child(n+3) { grid-column: 2; }
+  .videos-table .video-file-link { white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
+  .videos-table tbody td:nth-child(4)::before { content: "Size: "; color: var(--wb-muted); }
+  .videos-table tbody td:nth-child(5)::before { content: "Updated: "; }
+  .videos-table .row-actions { margin-top: .25rem; }
+}

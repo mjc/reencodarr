@@ -330,7 +330,7 @@ defmodule ReencodarrWeb.VideosComponents do
   defp videos_table(assigns) do
     ~H"""
     <div class="bg-[var(--wb-panel)] rounded-md border border-[var(--wb-line)] overflow-x-auto">
-      <table class="min-w-full divide-y divide-[var(--wb-line)] text-sm">
+      <table class="videos-table min-w-full divide-y divide-[var(--wb-line)] text-sm">
         <thead class="bg-[var(--wb-raised)]">
           <tr>
             <th class="w-10 px-3 py-3 text-center">
@@ -353,6 +353,7 @@ defmodule ReencodarrWeb.VideosComponents do
                   }
                   class="rounded border-gray-500 bg-[var(--wb-raised)] text-purple-500 focus:outline-[var(--wb-blue)] focus:ring-offset-gray-800 cursor-pointer"
                 />
+                <span class="sm:hidden">Select page</span>
               <% end %>
             </th>
             <.col_header
