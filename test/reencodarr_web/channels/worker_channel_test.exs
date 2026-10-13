@@ -1,7 +1,7 @@
 defmodule ReencodarrWeb.WorkerChannelTest do
   use ReencodarrWeb.ChannelCase, async: false
 
-  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.AbAv1.{Encode, ProcessControl}
   alias Reencodarr.AbAv1.WorkerProtocol
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
@@ -50,6 +50,57 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{accepted: true, protocol_version: 1}
 
       assert_reply push(socket, "pull_work", %{}), :ok, %{status: "no_work"}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "global worker pause blocks both queues and resume allows assignments" do
+      start_supervised!(ProcessControl)
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, crf_video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, encode_video} =
+        Fixtures.video_fixture(%{state: :crf_searched, mediainfo: worker_mediainfo()})
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: encode_video.id})
+      Fixtures.choose_vmaf(encode_video, vmaf)
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(
+                     socket,
+                     "announce",
+                     announce_payload(capabilities: %{"crf_search" => true, "encode" => true})
+                   ),
+                   :ok
+
+      report_disk_capacity(socket)
+      assert {:ok, :paused, 0} = ProcessControl.toggle_workers()
+
+      for job_type <- ["crf_search", "encode"] do
+        assert_reply push(socket, "pull_work", %{"job_type" => job_type}),
+                     :ok,
+                     %{status: "no_work"}
+      end
+
+      assert Media.get_video(crf_video.id).state == :analyzed
+      assert Media.get_video(encode_video.id).state == :crf_searched
+      assert {:ok, :running, 0} = ProcessControl.toggle_workers()
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
+                   :ok,
+                   %{status: "job_assigned", video_id: assigned_crf}
+
+      assert assigned_crf == crf_video.id
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{status: "job_assigned", video_id: assigned_encode}
+
+      assert assigned_encode == encode_video.id
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -635,7 +686,13 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert Media.get_video(video.id).state == :failed
 
-      assert [%{failure_category: :configuration, failure_stage: :encoding}] =
+      assert [
+               %{
+                 failure_category: :configuration,
+                 failure_stage: :encoding,
+                 system_context: %{"classification" => "unsupported_object_audio"}
+               }
+             ] =
                Media.get_video_failures(video.id)
     after
       Application.delete_env(:reencodarr, :worker_token)

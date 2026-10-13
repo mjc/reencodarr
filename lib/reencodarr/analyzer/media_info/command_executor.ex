@@ -15,6 +15,8 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
 
   require Logger
 
+  alias Reencodarr.Analyzer.AudioProbe
+
   alias Reencodarr.Analyzer.{
     Core.ConcurrencyManager,
     Optimization.BulkFileChecker
@@ -167,7 +169,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
         Logger.debug("Processing flat MediaInfo structure")
         # Convert flat structure to proper format
         wrapped_data = %{"media" => flat_data}
-        {:ok, %{single_path => wrapped_data}}
+        {:ok, %{single_path => AudioProbe.enrich(wrapped_data, single_path)}}
     end
   end
 
@@ -182,7 +184,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   defp process_single_media_object(%{"media" => media_item} = media_data, acc) do
     case extract_file_path(media_item) do
       {:ok, path} ->
-        Map.put(acc, path, media_data)
+        Map.put(acc, path, AudioProbe.enrich(media_data, path))
 
       {:error, reason} ->
         Logger.warning("Failed to extract file path from MediaInfo: #{reason}")

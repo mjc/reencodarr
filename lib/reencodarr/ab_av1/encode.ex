@@ -630,10 +630,7 @@ defmodule Reencodarr.AbAv1.Encode do
     reason = Exception.message(error)
     Logger.error("Rejecting encode for video #{video.id}: #{reason}")
 
-    FailureTracker.record_configuration_failure(video, reason,
-      stage: :encoding,
-      context: %{classification: :unsupported_object_audio}
-    )
+    FailureTracker.record_audio_classification_failure(video, error)
 
     Producer.dispatch_available()
     state

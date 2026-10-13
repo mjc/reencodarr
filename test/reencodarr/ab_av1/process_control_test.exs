@@ -23,6 +23,104 @@ defmodule Reencodarr.AbAv1.ProcessControlTest do
     refute ProcessControl.suspended?(:encoder)
   end
 
+  test "worker toggle gates both queues even when workers are idle" do
+    assert {:ok, :paused, 0} = ProcessControl.toggle_workers()
+    assert ProcessControl.suspended?(:crf_searcher)
+    assert ProcessControl.suspended?(:encoder)
+
+    assert {:ok, :running, 0} = ProcessControl.toggle_workers()
+    refute ProcessControl.suspended?(:crf_searcher)
+    refute ProcessControl.suspended?(:encoder)
+  end
+
+  test "worker toggle uses durable controls for both job types on all connected workers" do
+    for {job_type, worker_id} <- [{:crf_search, "tina"}, {:encode, "tali"}] do
+      job_id = "#{job_type}-toggle"
+      owner_field = if job_type == :encode, do: :encode_worker_id, else: :crf_search_worker_id
+      state = if job_type == :encode, do: :encoding, else: :crf_searching
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          owner_field => worker_id,
+          :state => state,
+          :worker_attempt_id => job_id
+        })
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: worker_id,
+          client_worker_id: worker_id,
+          protocol_version: 1,
+          version: "0.11.5",
+          capabilities: %{"encode" => true, "crf_search" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job(worker_id, %Job{
+          job_id: job_id,
+          job_type: job_type,
+          video_id: video.id
+        })
+
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, WorkerSessions.control_topic(worker_id))
+    end
+
+    for {action, desired} <- [{:pause, :paused}, {:resume, :running}] do
+      assert {:ok, ^desired, 2} = ProcessControl.toggle_workers()
+
+      for session <- WorkerSessions.list(), {job_id, job} <- session.jobs do
+        assert_receive {:worker_control, ^action, ^job_id, command_id}
+        assert is_binary(command_id)
+        assert job.desired_control_state == desired
+        assert Reencodarr.Media.get_video(job.video_id).worker_control_desired_state == desired
+      end
+    end
+
+    assert {:ok, :paused, 2} = ProcessControl.toggle_workers()
+    assert :ok = WorkerSessions.request_control("tina", "crf_search-toggle", :resume)
+
+    assert ProcessControl.suspended?(:crf_searcher)
+    assert ProcessControl.suspended?(:encoder)
+    assert {:ok, :paused, 2} = ProcessControl.toggle_workers()
+
+    for session <- WorkerSessions.list(), {_job_id, job} <- session.jobs do
+      assert job.desired_control_state == :paused
+    end
+
+    ProcessControl.resume(:crf_searcher)
+    ProcessControl.resume(:encoder)
+    assert {:ok, :running, 2} = ProcessControl.toggle_workers()
+  end
+
+  test "worker toggle normalizes a mixed queue pause to paused" do
+    ProcessControl.suspend(:encoder)
+    assert {:ok, :paused, 0} = ProcessControl.toggle_workers()
+    assert ProcessControl.suspended?(:crf_searcher)
+    assert ProcessControl.suspended?(:encoder)
+  end
+
+  test "worker toggle reports control failures instead of claiming every job was paused" do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "stale-server",
+        client_worker_id: "stale-client",
+        protocol_version: 1,
+        version: "0.11.5",
+        capabilities: %{"encode" => true}
+      })
+
+    {:ok, _session} =
+      WorkerSessions.assign_job("stale-server", %Job{
+        job_id: "stale-job",
+        job_type: :encode,
+        video_id: 999_999_999
+      })
+
+    assert {:error, :paused, [{"stale-server", "stale-job"}]} = ProcessControl.toggle_workers()
+    assert ProcessControl.suspended?(:crf_searcher)
+    assert ProcessControl.suspended?(:encoder)
+  end
+
   test "tracks CRF searcher suspension independently from encoder" do
     assert :ok = ProcessControl.suspend(:crf_searcher)
 

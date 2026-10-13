@@ -122,12 +122,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @spec transition_to_analyzed(Video.t(), map()) ::
           {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
-    # Check if video has low bitrate and HDR content, should be marked as encoded
+    # Skip CRF search for low-bitrate HDR and already-compressed HEVC sources.
     if low_bitrate?(video) do
       bitrate_mbps = video.bitrate / 1_000_000
 
       Logger.debug(
-        "Video #{video.path} has low bitrate (#{:erlang.float_to_binary(bitrate_mbps, decimals: 1)} Mbps) and HDR, marking as encoded"
+        "Video #{video.path} matches the low-bitrate HDR/HEVC skip rule (#{:erlang.float_to_binary(bitrate_mbps, decimals: 1)} Mbps), marking as encoded"
       )
 
       transition(video, :encoded, attrs)
@@ -471,11 +471,19 @@ defmodule Reencodarr.Media.VideoStateMachine do
     DbWriter.run(fn -> Reencodarr.Repo.update(changeset) end, label: label)
   end
 
-  # Check if video has low bitrate (less than 5 Mbps = 5,000,000 bps) AND is HDR and should skip encoding
-  defp low_bitrate?(%Video{bitrate: bitrate, hdr: hdr})
-       when is_integer(bitrate) and bitrate > 0 and not is_nil(hdr) do
-    bitrate < 5_000_000
+  # Skip existing low-bitrate HEVC encodes and low-bitrate HDR sources.
+  defp low_bitrate?(%Video{bitrate: bitrate, hdr: hdr, video_codecs: video_codecs})
+       when is_integer(bitrate) and bitrate > 0 do
+    bitrate < 5_000_000 and (not is_nil(hdr) or hevc?(video_codecs))
   end
 
   defp low_bitrate?(_video), do: false
+
+  defp hevc?(video_codecs) when is_list(video_codecs) do
+    Enum.any?(video_codecs, fn codec ->
+      String.contains?(String.downcase(codec), ["hevc", "h265"])
+    end)
+  end
+
+  defp hevc?(_video_codecs), do: false
 end

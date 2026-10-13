@@ -10,6 +10,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   alias Reencodarr.AbAv1.{
     CrfSearch,
     Encode,
+    ProcessControl,
     WorkerAdmission,
     WorkerConfig,
     WorkerProtocol,
@@ -633,6 +634,12 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp claim_encode_work(socket, available_bytes) do
+    when_worker_service_running(socket, :encoder, fn ->
+      claim_available_encode_work(socket, available_bytes)
+    end)
+  end
+
+  defp claim_available_encode_work(socket, available_bytes) do
     attempt_id = "encode-#{Ecto.UUID.generate()}"
     local_worker? = socket.assigns[:local_worker] || false
 
@@ -739,10 +746,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     reason = Exception.message(error)
     Logger.error("Rejecting worker encode for video #{video.id}: #{reason}")
 
-    FailureTracker.record_configuration_failure(video, reason,
-      stage: :encoding,
-      context: %{classification: :unsupported_object_audio}
-    )
+    FailureTracker.record_audio_classification_failure(video, error)
   end
 
   defp maybe_clear_encode_session_job(socket, job_id) when is_binary(job_id) do
@@ -1484,6 +1488,18 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp worker_exit_code(_failure), do: nil
 
   defp claim_work(worker_id, socket) do
+    when_worker_service_running(socket, :crf_searcher, fn ->
+      claim_available_crf_work(worker_id, socket)
+    end)
+  end
+
+  defp when_worker_service_running(socket, service, claim) do
+    if ProcessControl.suspended?(service),
+      do: {:reply, {:ok, WorkerProtocol.no_work()}, socket},
+      else: claim.()
+  end
+
+  defp claim_available_crf_work(worker_id, socket) do
     attempt_id = "crf-#{Ecto.UUID.generate()}"
 
     case Media.claim_next_video_for_crf_search(worker_dispatch_id(socket), attempt_id) do

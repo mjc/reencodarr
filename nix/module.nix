@@ -174,6 +174,26 @@
         ${lib.getExe cfg.package} rpc "$expr"
     '';
   };
+
+  pauseScript = pkgs.writeShellApplication {
+    name = "reencodarr-pause";
+    runtimeInputs = [rpcScript];
+    text = ''
+      if [ "$#" -ne 0 ]; then
+        echo "usage: reencodarr-pause" >&2
+        exit 64
+      fi
+
+      exec reencodarr-rpc '
+        case Reencodarr.AbAv1.ProcessControl.toggle_workers() do
+          {:ok, state, jobs} ->
+            IO.puts("Workers #{state}: both queues updated; #{jobs} job controls requested")
+          {:error, state, failures} ->
+            raise "Worker queues #{state}, but controls failed for: #{inspect(failures)}"
+        end
+      '
+    '';
+  };
 in {
   options.services.reencodarr = {
     enable = mkEnableOption "Reencodarr";
@@ -333,6 +353,7 @@ in {
     environment.systemPackages = [
       remoteScript
       rpcScript
+      pauseScript
     ];
 
     systemd.services.reencodarr = {

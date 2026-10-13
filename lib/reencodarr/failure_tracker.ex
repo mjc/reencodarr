@@ -247,6 +247,31 @@ defmodule Reencodarr.FailureTracker do
   end
 
   # Cross-cutting failures
+  @spec record_audio_classification_failure(
+          Media.Video.t(),
+          Reencodarr.Rules.Audio.ClassificationError.t()
+        ) ::
+          {:ok, Media.VideoFailure.t()} | {:error, term()}
+  def record_audio_classification_failure(
+        video,
+        %Reencodarr.Rules.Audio.ClassificationError{} = error
+      ) do
+    context = Map.from_struct(error) |> Map.delete(:__exception__)
+
+    if error.classification == :unsupported_object_audio do
+      record_configuration_failure(video, Exception.message(error),
+        stage: :encoding,
+        context: context
+      )
+    else
+      Media.record_video_failure(video, :encoding, :codec_issues,
+        code: "AUDIO_CLASSIFICATION",
+        message: Exception.message(error),
+        context: context
+      )
+    end
+  end
+
   def record_configuration_failure(video, config_issue, opts \\ []) do
     context = Map.merge(%{config_issue: config_issue}, Keyword.get(opts, :context, %{}))
 

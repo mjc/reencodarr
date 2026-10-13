@@ -248,8 +248,9 @@ defmodule Reencodarr.Diagnostics do
       "Failure #{id} not found"
     else
       ctx = failure.system_context || %{}
-      command = Map.get(ctx, "command", "N/A")
-      output = Map.get(ctx, "full_output", "N/A")
+      command = failure_command(ctx)
+      output = nonempty_text(ctx["full_output"]) || nonempty_text(ctx["stderr_excerpt"]) || "N/A"
+      details = Map.drop(ctx, ["command", "argv", "args", "full_output", "stderr_excerpt"])
 
       """
       #{section("Failure #{id}")}
@@ -270,11 +271,26 @@ defmodule Reencodarr.Diagnostics do
 
       Output (last 5000 chars):
       #{String.slice(output, -5000..-1//1)}
+
+      Details:
+      #{inspect(details, pretty: true, limit: 50, printable_limit: 5000)}
       """
     end
   rescue
     e -> "Error in failure/1: #{Exception.message(e)}"
   end
+
+  defp failure_command(ctx) do
+    nonempty_text(ctx["command"]) || format_failure_argv(ctx["argv"] || ctx["args"])
+  end
+
+  defp format_failure_argv([_ | _] = argv),
+    do: "ab-av1 " <> Enum.map_join(argv, " ", &inspect/1)
+
+  defp format_failure_argv(_), do: "N/A"
+
+  defp nonempty_text(value) when is_binary(value) and value != "", do: value
+  defp nonempty_text(_), do: nil
 
   @doc """
   Pipeline queue contents (next 10 items per queue).

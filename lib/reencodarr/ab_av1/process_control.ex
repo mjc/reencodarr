@@ -42,6 +42,15 @@ defmodule Reencodarr.AbAv1.ProcessControl do
     cast_or_default({:resume, service})
   end
 
+  @doc """
+  Toggles both worker queues and requests the same pause/resume state for every active job.
+  Mixed states are normalized to paused; stopped jobs are not restarted.
+  """
+  @spec toggle_workers() ::
+          {:ok, :paused | :running, non_neg_integer()}
+          | {:error, :paused | :running, [{String.t(), String.t()}]}
+  def toggle_workers, do: GenServer.call(__MODULE__, :toggle_workers, 30_000)
+
   @impl true
   def init(opts) do
     state = initial_state(opts)
@@ -52,6 +61,39 @@ defmodule Reencodarr.AbAv1.ProcessControl do
   @impl true
   def handle_call({:suspended?, service}, _from, state) do
     {:reply, get_in(state, [:services, service, :suspended?]) || false, state}
+  end
+
+  def handle_call(:toggle_workers, _from, state) do
+    jobs =
+      for session <- WorkerSessions.list(),
+          {_job_id, job} <- session.jobs,
+          job.active and job.desired_control_state != :stopped and job.control_state != :stopped,
+          do: {session.server_worker_id, job}
+
+    {action, desired_state, suspended_at} =
+      if all_workers_paused?(state, jobs),
+        do: {:resume, :running, nil},
+        else: {:pause, :paused, DateTime.utc_now()}
+
+    state =
+      Enum.reduce(@services, state, fn service, state ->
+        put_service_state(state, service, desired_state == :paused, suspended_at)
+      end)
+
+    failures =
+      Enum.flat_map(jobs, fn {worker_id, job} ->
+        case WorkerSessions.request_control(worker_id, job.job_id, action) do
+          :ok -> []
+          :error -> [{worker_id, job.job_id}]
+        end
+      end)
+
+    reply =
+      if failures == [],
+        do: {:ok, desired_state, length(jobs)},
+        else: {:error, desired_state, failures}
+
+    {:reply, reply, state}
   end
 
   @impl true
@@ -96,6 +138,12 @@ defmodule Reencodarr.AbAv1.ProcessControl do
   end
 
   defp service_state, do: %{suspended?: false, suspended_at: nil}
+
+  defp all_workers_paused?(state, []),
+    do: Enum.all?(@services, &get_in(state, [:services, &1, :suspended?]))
+
+  defp all_workers_paused?(_state, jobs),
+    do: Enum.all?(jobs, fn {_, job} -> job.desired_control_state == :paused end)
 
   defp put_service_state(state, service, suspended?, suspended_at) do
     put_in(state, [:services, service], %{suspended?: suspended?, suspended_at: suspended_at})

@@ -3,6 +3,7 @@ defmodule Reencodarr.Rules.Audio do
   Audio encoding rules for ab-av1 with codec-aware bitrate scaling.
 
   Determines the audio codec strategy:
+  - Exclude explicitly encrypted/protected enca audio tracks
   - Copy only if every track is already Opus (no re-encoding needed)
   - Reject incomplete audio metadata instead of guessing a copy or codec-only conversion
   - Transcode all to Opus if no copy-through tracks are present
@@ -14,15 +15,29 @@ defmodule Reencodarr.Rules.Audio do
   alias Reencodarr.Media
   alias Reencodarr.Media.AudioTrackInfo
 
+  require Logger
+
   defmodule ClassificationError do
     @moduledoc false
 
-    defexception [:track_index, :format, :codec_id, :reason]
+    defexception [
+      :track_index,
+      :format,
+      :codec_id,
+      :reason,
+      :language,
+      probe: %{},
+      classification: :unidentified_audio
+    ]
 
     @type t :: %__MODULE__{
             track_index: non_neg_integer() | nil,
             format: String.t() | nil,
             codec_id: String.t() | nil,
+            language: String.t() | nil,
+            probe: map(),
+            classification:
+              :unidentified_audio | :incomplete_audio_metadata | :unsupported_object_audio,
             reason: String.t()
           }
 
@@ -36,7 +51,8 @@ defmodule Reencodarr.Rules.Audio do
         |> Enum.join(" / ")
 
       suffix = if identity == "", do: "", else: " (#{identity})"
-      "cannot classify#{track}#{suffix}: #{error.reason}"
+      language = if error.language in [nil, ""], do: "", else: " [#{error.language}]"
+      "cannot classify#{track}#{suffix}#{language}: #{error.reason}"
     end
   end
 
@@ -101,60 +117,40 @@ defmodule Reencodarr.Rules.Audio do
     validate_container!(mediainfo)
     indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
 
-    {copy_through, non_copy_through} =
-      Enum.split_with(indexed_tracks, fn {idx, track} -> track_should_copy?(idx, track) end)
-
-    route_by_copy_through(copy_through, non_copy_through, mediainfo)
-  end
-
-  defp route_by_copy_through([], _non_copy_through, mediainfo), do: encode_uniform(mediainfo)
-  defp route_by_copy_through(_copy_through, [], _mediainfo), do: @copy_audio
-
-  defp route_by_copy_through(_copy_through, non_copy_through, _mediainfo),
-    do: encode_mixed(non_copy_through)
-
-  # No copy-through tracks: apply rules uniformly across all tracks
-  # Build per-stream overrides for each track, or copy if issues found
-  defp encode_uniform(mediainfo) do
-    indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
+    {encrypted, retained} =
+      Enum.split_with(indexed_tracks, fn {_idx, track} -> AudioTrackInfo.encrypted?(track) end)
 
     overrides =
-      Enum.flat_map(indexed_tracks, fn {idx, track} ->
-        build_per_stream_overrides(idx, track)
+      retained
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {{source_idx, track}, output_idx} ->
+        if track_should_copy?(source_idx, track),
+          do: [],
+          else: build_per_stream_overrides(source_idx, output_idx, track)
       end)
 
-    case overrides do
-      [] -> @copy_audio
-      _ -> @copy_audio ++ overrides
-    end
-  end
-
-  # Mixed copy-through + transcode tracks: base is --acodec copy, override transcode tracks per-stream
-  defp encode_mixed(non_copy_through_tracks) do
-    overrides =
-      Enum.flat_map(non_copy_through_tracks, fn {idx, track} ->
-        build_per_stream_overrides(idx, track)
+    exclusions =
+      Enum.map(encrypted, fn {source_idx, track} ->
+        Logger.warning("Excluding encrypted audio track #{source_idx} [#{track.language}]")
+        {"--enc", "map=-0:a:#{source_idx}"}
       end)
 
-    case overrides do
-      [] -> @copy_audio
-      _ -> @copy_audio ++ overrides
-    end
+    @copy_audio ++ exclusions ++ overrides
   end
 
-  defp build_per_stream_overrides(idx, %{channels: channels} = track)
+  defp build_per_stream_overrides(source_idx, output_idx, %{channels: channels} = track)
        when is_integer(channels) and channels > 0 do
     case opus_target_for_track(track, channels) do
       target_bitrate when is_integer(target_bitrate) ->
-        opus_stream_args(idx, target_bitrate, track.channel_layout)
+        opus_stream_args(output_idx, target_bitrate, track.channel_layout)
 
       nil ->
-        raise_classification!(idx, track, "could not select an Opus bitrate")
+        raise_classification!(source_idx, track, "could not select an Opus bitrate")
     end
   end
 
-  defp build_per_stream_overrides(idx, track),
-    do: raise_classification!(idx, track, "missing or invalid channel count")
+  defp build_per_stream_overrides(source_idx, _output_idx, track),
+    do: raise_classification!(source_idx, track, "missing or invalid channel count")
 
   defp opus_stream_args(idx, target_bitrate, channel_layout) do
     base = [
@@ -163,10 +159,9 @@ defmodule Reencodarr.Rules.Audio do
     ]
 
     layout_args =
-      if needs_layout_normalization?(channel_layout) do
-        [{"--enc", "filter:a:#{idx}=aformat=channel_layouts=5.1|7.1|stereo"}]
-      else
-        []
+      case opus_layout_filter(channel_layout) do
+        nil -> []
+        filter -> [{"--enc", "filter:a:#{idx}=#{filter}"}]
       end
 
     base ++ layout_args
@@ -216,6 +211,7 @@ defmodule Reencodarr.Rules.Audio do
     raise %ClassificationError{
       format: format,
       codec_id: codec_id,
+      classification: :incomplete_audio_metadata,
       reason:
         "detailed MediaInfo is required to classify #{audio_count || "unknown"} audio track(s)"
     }
@@ -232,10 +228,20 @@ defmodule Reencodarr.Rules.Audio do
     commercial = track.format_commercial_if_any |> normalize_codec_string()
     additional = track.format_additionalfeatures |> normalize_codec_string()
 
-    if immersive_ac4?(track, codec, codec_id) do
-      raise_classification!(idx, track, "immersive AC-4 is unsupported by Matroska output")
-    else
-      classify_supported_track(idx, track, codec, codec_id, commercial, additional)
+    cond do
+      is_binary(track.probe["error"]) ->
+        raise_classification!(idx, track, unknown_identity_reason(track))
+
+      immersive_ac4?(track, codec, codec_id) ->
+        raise_classification!(
+          idx,
+          track,
+          "immersive AC-4 is unsupported by Matroska output",
+          :unsupported_object_audio
+        )
+
+      true ->
+        classify_supported_track(idx, track, codec, codec_id, commercial, additional)
     end
   end
 
@@ -257,8 +263,26 @@ defmodule Reencodarr.Rules.Audio do
         false
 
       true ->
-        raise_classification!(idx, track, "unknown audio identity")
+        reject_unknown_identity!(idx, track, codec, codec_id)
     end
+  end
+
+  defp reject_unknown_identity!(idx, track, codec, codec_id) do
+    if unsupported_object_identity?(codec, codec_id) do
+      raise_classification!(
+        idx,
+        track,
+        "object audio is unsupported by Matroska output",
+        :unsupported_object_audio
+      )
+    else
+      raise_classification!(idx, track, unknown_identity_reason(track))
+    end
+  end
+
+  defp unsupported_object_identity?(codec, codec_id) do
+    codec_id in ~w(iamf mha1 mha2 mhm1 mhm2 apac a3ds dtsx dtsy) or
+      codec in ~w(iamf mpegh3daudio dtsuhdma applepositionalaudiocodec aurocx auromax iab)
   end
 
   defp copy_through?(codec, codec_id, commercial, additional) do
@@ -351,21 +375,30 @@ defmodule Reencodarr.Rules.Audio do
 
     cond do
       format == "iamf" ->
-        raise %ClassificationError{reason: "IAMF container cannot be flattened to Matroska"}
+        raise %ClassificationError{
+          reason: "IAMF container cannot be flattened to Matroska",
+          classification: :unsupported_object_audio
+        }
 
       format == "bw64" ->
-        raise %ClassificationError{reason: "ADM in BW64 cannot be flattened to Matroska"}
+        raise %ClassificationError{
+          reason: "ADM in BW64 cannot be flattened to Matroska",
+          classification: :unsupported_object_audio
+        }
 
       true ->
         :ok
     end
   end
 
-  defp raise_classification!(idx, track, reason) do
+  defp raise_classification!(idx, track, reason, classification \\ :unidentified_audio) do
     raise %ClassificationError{
       track_index: idx,
       format: track.codec,
       codec_id: track.codec_id,
+      language: track.language,
+      probe: track.probe,
+      classification: classification,
       reason: reason
     }
   end
@@ -375,16 +408,64 @@ defmodule Reencodarr.Rules.Audio do
   defp normalize_codec_string(value),
     do: value |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "")
 
-  defp needs_layout_normalization?(nil), do: true
-  defp needs_layout_normalization?(""), do: true
+  defp unknown_identity_reason(%{probe: %{"error" => reason}}),
+    do: "unknown audio identity: #{reason}"
 
-  defp needs_layout_normalization?(channel_layout) do
-    normalized = String.downcase(channel_layout)
+  defp unknown_identity_reason(_track), do: "unknown audio identity"
 
-    String.contains?(normalized, "side") or
-      String.contains?(normalized, "wide") or
-      String.contains?(normalized, "hexagonal") or
-      String.contains?(normalized, "ls rs") or
-      String.contains?(normalized, "sl sr")
+  @canonical_layouts MapSet.new([
+                       "mono",
+                       "stereo",
+                       "2.0",
+                       "3.0",
+                       "quad",
+                       "5.0",
+                       "5.1",
+                       "6.1",
+                       "7.1",
+                       "c",
+                       "l r",
+                       "c l r",
+                       "l lb r rb",
+                       "c l lb r rb",
+                       "c l lb lfe r rb",
+                       "c cs l lfe ls r rs",
+                       "c l lb lfe ls r rb rs"
+                     ])
+
+  defp opus_layout_filter(channel_layout) do
+    normalized =
+      (channel_layout || "")
+      |> String.downcase()
+      |> String.split(~r/[\s+]+/, trim: true)
+      |> Enum.map(
+        &Map.get(
+          %{
+            "fl" => "l",
+            "fr" => "r",
+            "fc" => "c",
+            "bl" => "lb",
+            "br" => "rb",
+            "sl" => "ls",
+            "sr" => "rs",
+            "bc" => "cs"
+          },
+          &1,
+          &1
+        )
+      )
+      |> Enum.sort()
+      |> Enum.join(" ")
+
+    cond do
+      normalized in ["2.1", "l lfe r"] ->
+        "pan=5.1|FL=FL|FR=FR|LFE=LFE"
+
+      MapSet.member?(@canonical_layouts, normalized) ->
+        nil
+
+      true ->
+        "aformat=channel_layouts=5.1|7.1|stereo"
+    end
   end
 end

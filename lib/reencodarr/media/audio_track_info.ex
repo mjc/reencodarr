@@ -9,6 +9,8 @@ defmodule Reencodarr.Media.AudioTrackInfo do
           bitrate: non_neg_integer() | nil,
           format_commercial_if_any: String.t(),
           format_additionalfeatures: String.t(),
+          language: String.t(),
+          probe: map(),
           extra: map()
         }
 
@@ -31,8 +33,8 @@ defmodule Reencodarr.Media.AudioTrackInfo do
   def primary_from_mediainfo(_mediainfo), do: :error
 
   @doc """
-  Returns all audio tracks with their ffmpeg audio stream index (0-based).
-  The index corresponds to the -c:a:N stream selector in ffmpeg.
+  Returns all audio tracks with their source audio stream index (0-based).
+  Output audio indexes may differ when tracks are excluded from the encode.
   """
   @spec all_from_mediainfo(map()) :: list({non_neg_integer(), audio_track()})
   def all_from_mediainfo(%{"media" => %{"track" => tracks}}) when is_list(tracks) do
@@ -46,16 +48,76 @@ defmodule Reencodarr.Media.AudioTrackInfo do
 
   @spec build_track_info(map()) :: audio_track()
   defp build_track_info(track) do
+    resolved = resolved_identity(track)
+
     %{
-      codec: text_field(track, "Format"),
-      codec_id: text_field(track, "CodecID"),
+      codec: text_field(resolved, "Format"),
+      codec_id: text_field(resolved, "CodecID"),
       channels: parse_channel_count(track),
-      channel_layout: text_field(track, "ChannelLayout"),
+      channel_layout: text_field(resolved, "ChannelLayout"),
       bitrate: parse_bitrate(track),
       format_commercial_if_any: text_field(track, "Format_Commercial_IfAny"),
       format_additionalfeatures: text_field(track, "Format_AdditionalFeatures"),
+      language: text_field(track, "Language"),
+      probe: map_field(track, "ReencodarrAudioProbe"),
       extra: map_field(track, "extra")
     }
+  end
+
+  @spec ambiguous_identity?(map()) :: boolean()
+  def ambiguous_identity?(track) do
+    identities = Enum.map(["Format", "CodecID"], &(track |> text_field(&1) |> String.downcase()))
+    identities == ["", ""] or Enum.any?(identities, &(&1 in ["a_quicktime", "unknown", "enca"]))
+  end
+
+  @spec encrypted?(audio_track() | map()) :: boolean()
+  def encrypted?(track) do
+    probe = Map.get(track, :probe, map_field(track, "ReencodarrAudioProbe"))
+
+    [
+      Map.get(track, :codec, text_field(track, "Format")),
+      Map.get(track, :codec_id, text_field(track, "CodecID")),
+      probe["codec_tag_string"]
+    ]
+    |> Enum.any?(fn
+      value when is_binary(value) -> String.downcase(String.trim(value)) == "enca"
+      _ -> false
+    end)
+  end
+
+  @probe_codecs %{
+    "ac3" => "AC-3",
+    "aac" => "AAC",
+    "flac" => "FLAC",
+    "alac" => "ALAC",
+    "opus" => "Opus",
+    "mp3" => "MP3",
+    "mp2" => "MP2",
+    "vorbis" => "Vorbis"
+  }
+
+  defp resolved_identity(track) do
+    probe = map_field(track, "ReencodarrAudioProbe")
+    format = Map.get(@probe_codecs, probe["codec_name"])
+
+    if ambiguous_identity?(track) and is_binary(format) and not encrypted?(track) and
+         is_nil(probe["error"]) and consistent_probe?(track, probe, format) do
+      track
+      |> Map.put("Format", format)
+      |> Map.put("CodecID", format)
+      |> Map.put("ChannelLayout", probe["channel_layout"] || track["ChannelLayout"])
+    else
+      track
+    end
+  end
+
+  defp consistent_probe?(track, probe, format) do
+    normalize = fn value -> String.downcase(value) |> String.replace(~r/[^a-z0-9]/, "") end
+    format = normalize.(format)
+    identities = Enum.map(["Format", "CodecID"], &(track |> text_field(&1) |> normalize.()))
+
+    Enum.all?(identities, &(&1 in ["", "aquicktime", "unknown", format, "a" <> format])) and
+      probe["channels"] == parse_channel_count(track)
   end
 
   defp text_field(track, key) do

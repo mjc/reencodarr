@@ -448,7 +448,7 @@ defmodule Reencodarr.Rules.AudioTest do
       apple_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(apple) end
       marian_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(marian) end
 
-      assert apple_error.reason == "unknown audio identity"
+      assert apple_error.classification == :unsupported_object_audio
       assert marian_error.reason == "unknown audio identity"
     end
 
