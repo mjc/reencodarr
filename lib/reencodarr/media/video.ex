@@ -38,6 +38,8 @@ defmodule Reencodarr.Media.Video do
           priority: integer(),
           original_size: integer() | nil,
           space_saved_bytes: integer(),
+          crf_search_seconds: float() | nil,
+          encode_seconds: float() | nil,
           max_audio_channels: integer() | nil,
           atmos: boolean() | nil,
           service_id: String.t() | nil,
@@ -145,6 +147,8 @@ defmodule Reencodarr.Media.Video do
     field :size, :integer
     field :original_size, :integer
     field :space_saved_bytes, :integer, default: 0
+    field :crf_search_seconds, :float
+    field :encode_seconds, :float
     field :text_codecs, {:array, :string}, default: []
     field :text_count, :integer
     field :video_codecs, {:array, :string}, default: []

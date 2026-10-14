@@ -54,6 +54,65 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "persists timing through the authenticated channel and deduplicates reconnect replay" do
+      Application.put_env(:reencodarr, :worker_token, "test-worker-token")
+
+      path =
+        Path.join(System.tmp_dir!(), "timed-worker-#{System.unique_integer([:positive])}.mkv")
+
+      File.write!(path, "source")
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          path: path,
+          size: 6,
+          worker_attempt_id: "timed-crf",
+          crf_search_worker_id: "abav1-dev"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => "test-worker-token"})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload()), :ok
+
+      payload = %{
+        "job_id" => "timed-crf",
+        "video_id" => video.id,
+        "job_type" => "crf_search",
+        "active_milliseconds" => 2000
+      }
+
+      assert_reply push(socket, "job_timing", payload), :ok, %{accepted: true}
+      assert Media.get_video(video.id).crf_search_seconds == 2.0
+
+      WorkerSessions.reset()
+      {:ok, reconnected} = connect(WorkerSocket, %{"token" => "test-worker-token"})
+      {:ok, _, reconnected} = subscribe_and_join(reconnected, "workers:crf_search")
+      assert_reply push(reconnected, "announce", announce_payload()), :ok
+
+      assert_reply push(reconnected, "pull_work", %{}), :ok, %{
+        status: "job_in_progress",
+        active_milliseconds: 2000
+      }
+
+      assert_reply push(reconnected, "job_timing", payload), :ok, %{accepted: true}
+      assert Media.get_video(video.id).crf_search_seconds == 2.0
+
+      assert_reply push(reconnected, "job_timing", Map.put(payload, "active_milliseconds", 3500)),
+                   :ok
+
+      assert Media.get_video(video.id).crf_search_seconds == 3.5
+
+      assert_reply push(reconnected, "job_timing", Map.put(payload, "job_id", "stale")), :ok, %{
+        discarded: true
+      }
+
+      assert Media.get_video(video.id).crf_search_seconds == 3.5
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "global worker pause blocks both queues and resume allows assignments" do
       start_supervised!(ProcessControl)
       token = "test-worker-token"
@@ -1185,6 +1244,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-failure")), :ok
 
+      timing = %{
+        "job_id" => "encode-failure",
+        "video_id" => video.id,
+        "job_type" => "encode",
+        "active_milliseconds" => 4000
+      }
+
+      assert_reply push(socket, "job_timing", timing), :ok
+
       payload = %{
         "job_id" => "encode-failure",
         "video_id" => video.id,
@@ -1201,12 +1269,19 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert Media.get_video(video.id).state == :failed
       assert [%{failure_code: "EXIT_254"}] = Media.get_video_failures(video.id)
+      recorded_seconds = Media.get_video(video.id).encode_seconds
+      assert recorded_seconds >= 4.0
+
+      assert Reencodarr.Repo.get!(Reencodarr.Media.WorkerTiming, "encode-failure").finalization_milliseconds !=
+               nil
 
       assert_reply push(socket, "video_failed", payload),
                    :ok,
                    %{accepted: true, event: "video_failed"}
 
       assert [_failure] = Media.get_video_failures(video.id)
+      assert_reply push(socket, "job_timing", timing), :ok
+      assert Media.get_video(video.id).encode_seconds == recorded_seconds
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

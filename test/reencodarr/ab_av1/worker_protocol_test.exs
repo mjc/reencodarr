@@ -7,6 +7,26 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchResult
 
+  test "job timing accepts only bounded integer counters and valid job identities" do
+    payload = %{
+      "job_id" => "crf-timed",
+      "video_id" => 42,
+      "job_type" => "crf_search",
+      "active_milliseconds" => 0
+    }
+
+    assert {:ok, %WorkerProtocol.JobTiming{active_milliseconds: 0}} =
+             WorkerProtocol.parse_job_timing(payload)
+
+    for invalid <- [-1, 1.5, "2000", nil, 9_223_372_036_854_775_808] do
+      assert {:error, :invalid_job_timing} =
+               WorkerProtocol.parse_job_timing(Map.put(payload, "active_milliseconds", invalid))
+    end
+
+    assert {:error, :invalid_job_timing} =
+             WorkerProtocol.parse_job_timing(Map.put(payload, "job_type", "unknown"))
+  end
+
   alias Reencodarr.AbAv1.WorkerProtocol.{
     ControlState,
     EncodeCompletion,

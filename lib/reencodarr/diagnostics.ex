@@ -101,6 +101,8 @@ defmodule Reencodarr.Diagnostics do
         Resolution: #{Formatters.resolution(video.width, video.height)}
         Duration:   #{Formatters.duration(video.duration)}
         FPS:        #{Formatters.fps(video.frame_rate)}
+        CRF time:   #{if is_nil(video.crf_search_seconds), do: "Not recorded", else: Formatters.duration(video.crf_search_seconds)} (unpaused)
+        Encode time: #{if is_nil(video.encode_seconds), do: "Not recorded", else: Formatters.duration(video.encode_seconds)} (unpaused)
 
       Codecs & Format:
         Video:      #{inspect(video.video_codecs)}

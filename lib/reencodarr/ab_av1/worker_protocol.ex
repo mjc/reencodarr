@@ -42,6 +42,19 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           }
   end
 
+  defmodule JobTiming do
+    @moduledoc false
+    @enforce_keys [:job_id, :video_id, :job_type, :active_milliseconds]
+    defstruct [:job_id, :video_id, :job_type, :active_milliseconds]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            job_type: :crf_search | :encode,
+            active_milliseconds: non_neg_integer()
+          }
+  end
+
   defmodule ControlState do
     @moduledoc false
 
@@ -289,6 +302,27 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   def parse_active_job(_payload), do: {:error, :invalid_active_job}
+
+  @spec parse_job_timing(map()) :: {:ok, JobTiming.t()} | {:error, :invalid_job_timing}
+  def parse_job_timing(%{"active_milliseconds" => milliseconds} = payload)
+      when is_integer(milliseconds) and milliseconds >= 0 and
+             milliseconds <= 9_223_372_036_854_775_807 do
+    case parse_active_job(payload) do
+      {:ok, job} ->
+        {:ok,
+         %JobTiming{
+           job_id: job.job_id,
+           video_id: job.video_id,
+           job_type: job.job_type,
+           active_milliseconds: milliseconds
+         }}
+
+      _ ->
+        {:error, :invalid_job_timing}
+    end
+  end
+
+  def parse_job_timing(_payload), do: {:error, :invalid_job_timing}
 
   @spec parse_control_state(map()) :: {:ok, ControlState.t()} | {:error, :invalid_control_state}
   def parse_control_state(%{"state" => state} = payload)
@@ -693,6 +727,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     video
     |> maybe_put_transfer(%{
       status: "job_assigned",
+      active_milliseconds: Keyword.get(opts, :active_milliseconds, 0),
       job_type: "crf_search",
       job_id: video.worker_attempt_id || Integer.to_string(video_id),
       video_id: video_id,
@@ -717,6 +752,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     video
     |> maybe_put_transfer(%{
       status: "job_in_progress",
+      active_milliseconds: Keyword.get(opts, :active_milliseconds, 0),
       job_type: "crf_search",
       job_id: video.worker_attempt_id || Integer.to_string(video_id),
       video_id: video_id,
@@ -737,6 +773,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
     payload = %{
       status: Keyword.get(opts, :status, "job_assigned"),
+      active_milliseconds: Keyword.get(opts, :active_milliseconds, 0),
       job_type: "encode",
       job_id: video.worker_attempt_id || "encode-#{video.id}",
       video_id: video.id,

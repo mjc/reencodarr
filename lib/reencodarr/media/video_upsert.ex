@@ -263,6 +263,8 @@ defmodule Reencodarr.Media.VideoUpsert do
       :chosen_vmaf_id,
       :original_size,
       :space_saved_bytes,
+      :crf_search_seconds,
+      :encode_seconds,
       :crf_search_worker_id,
       :encode_worker_id,
       :worker_attempt_id,

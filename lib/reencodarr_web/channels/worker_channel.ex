@@ -32,6 +32,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.FailureTracker
   alias Reencodarr.Media
+  alias Reencodarr.Media.WorkerTiming
   alias Reencodarr.PostProcessor
   alias Reencodarr.TempCleaner
 
@@ -105,6 +106,17 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  def handle_in("job_timing", payload, socket) do
+    with {:ok, report} <- WorkerProtocol.parse_job_timing(payload),
+         worker_id when is_binary(worker_id) <- socket.assigns[:client_worker_id],
+         {:ok, _result} <- WorkerTiming.record(worker_id, report) do
+      {:reply, {:ok, WorkerProtocol.event_ack("job_timing")}, socket}
+    else
+      {:error, reason} -> terminal_reply(socket, "job_timing", reason)
+      _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+    end
+  end
+
   def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok,
           %ControlState{
@@ -121,6 +133,8 @@ defmodule ReencodarrWeb.WorkerChannel do
              control_state,
              active_video_id
            ) do
+      finish_stopped_timing(control_state, active_video_id, job_id)
+
       socket =
         if control_state == :stopped and
              (is_nil(job_id) or socket.assigns[:current_video_id] == active_video_id) do
@@ -224,6 +238,14 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:error, :stale_worker_attempt}
     end
   end
+
+  defp finish_stopped_timing(:stopped, video_id, job_id)
+       when is_integer(video_id) and is_binary(job_id) do
+    {:ok, _} = WorkerTiming.finish(video_id, job_id, 0)
+    :ok
+  end
+
+  defp finish_stopped_timing(_state, _video_id, _job_id), do: :ok
 
   defp set_worker_control_state(worker_id, nil, nil, control_state, active_video_id),
     do: WorkerSessions.set_control_state(worker_id, control_state, active_video_id)
@@ -623,6 +645,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       WorkerProtocol.encode_work_assigned(video, vmaf,
         local?: local?,
         status: if(resend?, do: "job_assigned", else: "job_in_progress"),
+        active_milliseconds: WorkerTiming.active_milliseconds(video.id, video.worker_attempt_id),
         encode_args: encode_args
       )}, socket}
   end
@@ -1576,7 +1599,12 @@ defmodule ReencodarrWeb.WorkerChannel do
           fail_if_missing?: true
         )
 
-      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?)}, socket}
+      {:reply,
+       {:ok,
+        WorkerProtocol.work_assigned(video, target_vmaf,
+          local?: local?,
+          active_milliseconds: WorkerTiming.active_milliseconds(video.id, video.worker_attempt_id)
+        )}, socket}
     else
       {:error, :source_missing} ->
         fail_missing_source(video)
@@ -1599,7 +1627,9 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:reply,
          {:ok,
           WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target],
-            local?: local?
+            local?: local?,
+            active_milliseconds:
+              WorkerTiming.active_milliseconds(video.id, video.worker_attempt_id)
           )}, socket}
 
       {:error, :source_missing} ->
@@ -1854,11 +1884,22 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp with_terminal_claim(socket, video_id, job_id, job_type, event, fun) do
+    started = System.monotonic_time(:millisecond)
     WorkerSessions.record_job_activity(job_id, nil)
 
     case Media.claim_worker_terminal(video_id, job_id, job_type) do
       {:ok, :claimed} ->
-        release_terminal_claim_on_error(fun.(), video_id, job_id, job_type)
+        reply = fun.()
+
+        {:ok, _} =
+          WorkerTiming.finish(
+            video_id,
+            job_id,
+            System.monotonic_time(:millisecond) - started,
+            match?({:reply, {:ok, _}, _}, reply)
+          )
+
+        release_terminal_claim_on_error(reply, video_id, job_id, job_type)
 
       {:error, reason} ->
         terminal_reply(socket, event, reason)
